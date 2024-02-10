@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Polygon Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+    <style>
+        body { margin: 0; }
+        canvas { border: 1px solid #888; }
+    </style>
+</head>
+<body>
+
+<canvas id="myCanvas" width="800" height="600"></canvas>
+
+<script>
+    var canvas = new fabric.Canvas('myCanvas', {
+        selection: false,
+        perPixelTargetFind: true,
+        targetFindTolerance: 10
+    });
+
+    var polygonPoints = [
+        { x: 200, y: 200 },
+        { x: 300, y: 100 },
+        { x: 400, y: 200 },
+        { x: 350, y: 300 },
+        { x: 250, y: 300 }
+    ];
+
+    var polygon = new fabric.Polygon(polygonPoints, {
+        fill: 'rgba(0,0,255,0.3)',
+        stroke: 'blue',
+        strokeWidth: 2,
+        objectCaching: false,
+        transparentCorners: false,
+        cornerColor: 'blue',
+        cornerSize: 6
+    });
+
+    canvas.add(polygon);
+
+    polygonPoints.forEach((point, index) => {
+        var circle = new fabric.Circle({
+            radius: 5,
+            fill: 'red',
+            left: point.x,
+            top: point.y,
+            originX: 'center',
+            originY: 'center',
+            hasBorders: false,
+            hasControls: false,
+            selectable: true,
+            index: index
+        });
+
+        canvas.add(circle);
+
+        circle.on('moving', function() {
+            polygonPoints[this.index] = { x: this.left, y: this.top };
+            updatePolygon();
+        });
+    });
+
+    function updatePolygon() {
+        polygon.set({ points: polygonPoints });
+        canvas.renderAll();
+    }
+
+    canvas.on('mouse:down', function(options) {
+        if (options.target) return;
+        var pointer = canvas.getPointer(options.e);
+        var points = [pointer.x, pointer.y, pointer.x, pointer.y];
+        var line = new fabric.Line(points, {
+            strokeWidth: 2,
+            fill: 'red',
+            stroke: 'red',
+            originX: 'center',
+            originY: 'center',
+            selectable: false,
+            evented: false,
+        });
+        canvas.add(line);
+
+        canvas.on('mouse:move', function(options) {
+            var pointer = canvas.getPointer(options.e);
+            line.set({ x2: pointer.x, y2: pointer.y });
+            canvas.renderAll();
+        });
+
+        canvas.on('mouse:up', function() {
+            canvas.off('mouse:move');
+            canvas.remove(line);
+        });
+    });
+
+    canvas.on('object:modified', function() {
+        polygon.points = polygonPoints;
+        canvas.remove(polygon);
+        canvas.add(polygon);
+        polygon.setCoords();
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Delete') {
+            var activeObject = canvas.getActiveObject();
+            if (activeObject && activeObject.type === 'circle') {
+                polygonPoints.splice(activeObject.index, 1);
+                canvas.remove(activeObject);
+                updatePolygon();
+            }
+        }
+    });
+
+</script>
+
+</body>
+</html>

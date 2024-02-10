@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Polygon Fit</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+    <style>
+        body { margin: 0; }
+        canvas { border: 1px solid #888; }
+        #editPopup {
+            display: none;
+            position: absolute;
+            background: white;
+            border: 1px solid #888;
+            padding: 10px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="myCanvas" width="800" height="600"></canvas>
+<div id="editPopup">
+    <label>Latitude: <input type="text" id="editLat"></label><br>
+    <label>Longitude: <input type="text" id="editLng"></label><br>
+    <button onclick="saveEdit()">Save</button>
+    <button onclick="closePopup()">Cancel</button>
+</div>
+<div id="tooltip" style="display: none; position: absolute; background-color: #fff; border: 1px solid #000; padding: 5px; pointer-events: none; z-index: 100;"></div>
+
+<script>
+    var canvas = new fabric.Canvas('myCanvas', { subTargetCheck: true });
+    canvas.selection = false; // Disable group selection
+
+    var geoCoordinates = [
+        [40.71269361696359, -74.00649922615291],
+        [40.712634674937796, -74.00638657337429],
+        [40.71258579614513, -74.00642144209148],
+        [40.71264186299252, -74.0064965439439],
+        [40.71262892449348, -74.00656628137828],
+        [40.71269361696359, -74.00649922615291]
+    ];
+    var editIndex = -1;
+
+    // Function to scale and translate coordinates
+    function transformCoordinates(coords) {
+        // Find min and max values
+        let latMin = Math.min(...coords.map(coord => coord[0]));
+        let latMax = Math.max(...coords.map(coord => coord[0]));
+        let lngMin = Math.min(...coords.map(coord => coord[1]));
+        let lngMax = Math.max(...coords.map(coord => coord[1]));
+
+        // Calculate scale factors
+        let latScale = canvas.height / (latMax - latMin);
+        let lngScale = canvas.width / (lngMax - lngMin);
+
+        // Use the smaller scale factor to ensure the shape fits in both dimensions
+        let scale = Math.min(latScale, lngScale) * 0.8; // 0.8 to add some padding
+
+        // Translate and scale coordinates
+        return coords.map(coord => ({
+            x: (coord[1] - lngMin) * scale + (canvas.width - (lngMax - lngMin) * scale) / 2,
+            y: (latMax - coord[0]) * scale + (canvas.height - (latMax - latMin) * scale) / 2
+        }));
+    }
+
+    function showPopup(x, y, lat, lng) {
+        var popup = document.getElementById('editPopup');
+        popup.style.left = x + 'px';
+        popup.style.top = y + 'px';
+        document.getElementById('editLat').value = lat;
+        document.getElementById('editLng').value = lng;
+        popup.style.display = 'block';
+    }
+
+    function closePopup() {
+        document.getElementById('editPopup').style.display = 'none';
+    }
+
+    function saveEdit() {
+        var newLat = parseFloat(document.getElementById('editLat').value);
+        var newLng = parseFloat(document.getElementById('editLng').value);
+
+        if (!isNaN(newLat) && !isNaN(newLng) && editIndex >= 0 && editIndex < geoCoordinates.length) {
+            geoCoordinates[editIndex] = [newLat, newLng];
+            redrawPolygon();
+        }
+        closePopup();
+    }
+    function drawVertices(points) {
+        points.forEach(function(point, index) {
+            var circle = new fabric.Circle({
+                radius: 5, // Small radius for the circle
+                fill: 'red', // Fill color for the circle
+                left: point.x,
+                top: point.y,
+                selectable: false,
+                hasBorders: false,
+                hasControls: false,
+                originX: 'center',
+                originY: 'center',
+                vertexIndex: index, // Custom property to identify the vertex,
+                selectable: false,
+                evented: true, // Set to true to allow event listeners on the circle
+                hoverCursor: 'pointer',
+                vertexIndex: index
+            });
+            circle.geoCoord = geoCoordinates[index]; // Store the coordinates directly in the circle object
+
+            // Add the circle to the canvas
+            canvas.add(circle);
+        });
+    }
+    function redrawPolygon() {
+        // Remove existing polygon and circles from the canvas
+        if (polygon) {
+            canvas.remove(polygon);
+            canvas.getObjects('circle').forEach(function(circle) {
+                canvas.remove(circle);
+            });
+        }
+
+        // Redraw the polygon with updated coordinates
+        var canvasPoints = transformCoordinates(geoCoordinates);
+        polygon = new fabric.Polygon(canvasPoints, {
+            stroke: 'blue',
+            strokeWidth: 2,
+            fill: 'rgba(0,0,255,0.3)',
+            selectable: false
+        });
+        canvas.add(polygon);
+
+        // Redraw the vertices circles
+        drawVertices(canvasPoints);
+        canvas.renderAll(); // Ensure the canvas is re-rendered
+    }
+    canvas.on('mouse:over', function(e) {
+        if (e.target && e.target.type === 'circle') {
+            // Get the coordinates stored in the circle object
+            var coords = e.target.geoCoord;
+            var tooltipText = `Lat: ${coords[0].toFixed(4)}, Lng: ${coords[1].toFixed(4)}`;
+
+            // Position and show the tooltip
+            var tooltip = document.getElementById('tooltip');
+            tooltip.innerHTML = tooltipText;
+            tooltip.style.display = 'block';
+            tooltip.style.left = e.e.clientX + 'px';
+            tooltip.style.top = e.e.clientY + 'px';
+        }
+    });
+
+    canvas.on('mouse:out', function(e) {
+        if (e.target && e.target.type === 'circle') {
+            // Hide the tooltip
+            var tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'none';
+        }
+    });
+    canvas.on('mouse:dblclick', function(options) {
+        if (options.target && options.target.type === 'circle') {
+            var circle = options.target;
+            var index = circle.vertexIndex; // Retrieve the index of the vertex
+            var geoCoord = geoCoordinates[index]; // Get the corresponding geographical coordinates
+
+            // Calculate the position for the popup (you might need to adjust this)
+            var popupX = options.e.clientX;
+            var popupY = options.e.clientY;
+
+            // Show the popup for editing
+            showPopup(popupX, popupY, geoCoord[0], geoCoord[1]);
+            editIndex = index; // Set the global index for the edited vertex
+        }
+    });
+    var canvasPoints = transformCoordinates(geoCoordinates);
+    var polygon = new fabric.Polygon(canvasPoints, {
+        stroke: 'blue',
+        strokeWidth: 2,
+        fill: 'rgba(0,0,255,0.3)',
+        selectable: false
+    });
+    redrawPolygon()
+
+    // canvas.add(polygon);
+    // canvas.renderAll();
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Polygon Fit</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+    <style>
+        body { margin: 0; }
+        canvas { border: 1px solid #888; }
+        #editPopup {
+            display: none;
+            position: absolute;
+            background: white;
+            border: 1px solid #888;
+            padding: 10px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="myCanvas" width="800" height="600"></canvas>
+<div id="editPopup">
+    <label>Latitude: <input type="text" id="editLat"></label><br>
+    <label>Longitude: <input type="text" id="editLng"></label><br>
+    <button onclick="saveEdit()">Save</button>
+    <button onclick="closePopup()">Cancel</button>
+    <button onclick="deleteVertex()">Delete</button>
+</div>
+<div id="tooltip" style="display: none; position: absolute; background-color: #fff; border: 1px solid #000; padding: 5px; pointer-events: none; z-index: 100;"></div>
+
+<script>
+    var canvas = new fabric.Canvas('myCanvas', { subTargetCheck: true });
+    canvas.selection = false; // Disable group selection
+    var geoCoordinates =[];
+    var latLonCoordinates = [
+        [40.71269361696359, -74.00649922615291],
+        [40.712634674937796, -74.00638657337429],
+        [40.71258579614513, -74.00642144209148],
+        [40.71264186299252, -74.0064965439439],
+        [40.71262892449348, -74.00656628137828],
+        [40.71269361696359, -74.00649922615291]
+    ];
+    var editIndex = -1;
+    class Node {
+        constructor(data, prev = null, next = null) {
+            this.data = data;
+            this.prev = prev;
+            this.next = next;
+            this.circle = null; // Reference to the Fabric.js circle object
+        }
+    }
+
+    class LinkedList {
+        constructor() {
+            this.head = null;
+            this.tail = null;
+        }
+
+        add(data) {
+            const newNode = new Node(data);
+            if (!this.head) {
+                this.head = newNode;
+                this.tail = newNode;
+            } else {
+                newNode.prev = this.tail;
+                this.tail.next = newNode;
+                this.tail = newNode;
+            }
+        }
+
+        remove(node) {
+            if (!node.prev) {
+                this.head = node.next;
+                if (this.head) {
+                    this.head.prev = null;
+                }
+            } else {
+                node.prev.next = node.next;
+            }
+
+            if (!node.next) {
+                this.tail = node.prev;
+                if (this.tail) {
+                    this.tail.next = null;
+                }
+            } else {
+                node.next.prev = node.prev;
+            }
+        }
+
+        toArray() {
+            let arr = [];
+            let current = this.head;
+            while (current) {
+                arr.push(current.data);
+                current = current.next;
+            }
+            return arr;
+        }
+    }
+
+    // Initialize the linked list with geoCoordinates
+    var verticesList = new LinkedList();
+    latLonCoordinates.forEach(coord => verticesList.add(coord));
+    geoCoordinates = verticesList.toArray();
+    console.log("verticesList",verticesList,geoCoordinates)
+
+    // Function to scale and translate coordinates
+    function transformCoordinates(coords) {
+        // Find min and max values
+        let latMin = Math.min(...coords.map(coord => coord[0]));
+        let latMax = Math.max(...coords.map(coord => coord[0]));
+        let lngMin = Math.min(...coords.map(coord => coord[1]));
+        let lngMax = Math.max(...coords.map(coord => coord[1]));
+
+        // Check for zero range and adjust to avoid division by zero
+        let latRange = latMax - latMin || 1; // Use 1 if range is 0 to avoid division by zero
+        let lngRange = lngMax - lngMin || 1; // Use 1 if range is 0 to avoid division by zero
+
+        // Calculate scale factors, avoiding division by zero
+        let latScale = canvas.height / latRange;
+        let lngScale = canvas.width / lngRange;
+
+        // Use the smaller scale factor to ensure the shape fits in both dimensions
+        let scale = Math.min(latScale, lngScale) * 0.8; // 0.8 to add some padding
+
+        // Translate and scale coordinates
+        return coords.map(coord => ({
+            x: ((coord[1] - lngMin) / lngRange) * canvas.width * 0.8 + canvas.width * 0.1, // 10% padding on each side for longitude
+            y: canvas.height - ((coord[0] - latMin) / latRange) * canvas.height * 0.8 - canvas.height * 0.1 // 10% padding on each side for latitude
+        }));
+    }
+
+    function transformCanvasToGeo(x, y) {
+        let latMin = Math.min(...geoCoordinates.map(coord => coord[0]));
+        let latMax = Math.max(...geoCoordinates.map(coord => coord[0]));
+        let lngMin = Math.min(...geoCoordinates.map(coord => coord[1]));
+        let lngMax = Math.max(...geoCoordinates.map(coord => coord[1]));
+
+        let latRange = latMax - latMin;
+        let lngRange = lngMax - lngMin;
+
+        let canvasWidth = canvas.width;
+        let canvasHeight = canvas.height;
+
+        let latScale = canvasHeight / latRange;
+        let lngScale = canvasWidth / lngRange;
+
+        let scale = Math.min(latScale, lngScale) * 0.8; // The same scale as used in transformCoordinates
+
+        // Reverse the transformation
+        let lng = (x - (canvasWidth - lngRange * scale) / 2) / scale + lngMin;
+        let lat = latMax - (y - (canvasHeight - latRange * scale) / 2) / scale;
+
+        return [lat, lng];
+    }
+
+    function showPopup(x, y, lat, lng) {
+        var popup = document.getElementById('editPopup');
+        popup.style.left = x + 'px';
+        popup.style.top = y + 'px';
+        document.getElementById('editLat').value = lat;
+        document.getElementById('editLng').value = lng;
+        popup.style.display = 'block';
+    }
+
+    function closePopup() {
+        document.getElementById('editPopup').style.display = 'none';
+    }
+
+    function saveEdit() {
+        var newLat = parseFloat(document.getElementById('editLat').value);
+        var newLng = parseFloat(document.getElementById('editLng').value);
+
+        if (!isNaN(newLat) && !isNaN(newLng) && editIndex >= 0 && editIndex < geoCoordinates.length) {
+            geoCoordinates[editIndex] = [newLat, newLng];
+            redrawPolygon();
+        }
+        closePopup();
+    }
+    function deleteVertex() {
+        if (editIndex !== -1) {
+            let current = verticesList.head;
+            let index = 0;
+            while (current !== null) {
+                if (index === editIndex) {
+                    verticesList.remove(current);
+                    break;
+                }
+                current = current.next;
+                index++;
+            }
+            redrawPolygon();
+            closePopup();
+        }
+    }
+    function drawVertices(points) {
+        let index = 0;
+        let current = verticesList.head;
+        while (current) {
+            var circle = new fabric.Circle({
+                radius: 10, // Small radius for the circle
+                fill: 'red', // Fill color for the circle
+                left: points[index].x,
+                top: points[index].y,
+                // selectable: false,
+                hasBorders: false,
+                hasControls: false,
+                originX: 'center',
+                originY: 'center',
+                vertexIndex: index, // Custom property to identify the vertex,
+                evented: true, // Set to true to allow event listeners on the circle
+                // lockRotation: true,
+                // lockScalingX: true,
+                // lockScalingY: true,
+                hoverCursor: 'move', // Cursor indicates the circle can be moved
+                moveCursor: 'move',
+                vertexIndex: index
+            });
+            circle.geoCoord = geoCoordinates[index];
+            // Associate the Fabric.js circle with the linked list node
+            current.circle = circle;
+            
+            // Add the circle to the canvas
+            canvas.add(circle);
+
+            current = current.next;
+            index++;
+        }
+    }
+    
+    function redrawPolygon() {
+        // Remove existing polygon and circles from the canvas
+        if (polygon) {
+            canvas.remove(polygon);
+            canvas.getObjects('circle').forEach(function(circle) {
+                canvas.remove(circle);
+            });
+        }
+        if (highlightLine) {
+            canvas.remove(highlightLine);
+            highlightLine = null;
+        }
+
+        // Redraw the polygon with updated coordinates
+        geoCoordinates = verticesList.toArray();
+        var canvasPoints = transformCoordinates(geoCoordinates);
+        polygon = new fabric.Polygon(canvasPoints, {
+            stroke: 'blue',
+            strokeWidth: 2,
+            fill: 'rgba(0,0,255,0.3)',
+            selectable: false
+        });
+        canvas.add(polygon);
+
+        // Redraw the vertices circles
+        drawVertices(canvasPoints);
+        canvas.renderAll(); // Ensure the canvas is re-rendered
+    }
+    function getLineDistance(point, lineStart, lineEnd) {
+        console.log("getLineDistance",point, lineStart, lineEnd)
+        var A = point.x - lineStart.x;
+        var B = point.y - lineStart.y;
+        var C = lineEnd.x - lineStart.x;
+        var D = lineEnd.y - lineStart.y;
+
+        var dot = A * C + B * D;
+        var len_sq = C * C + D * D;
+        var param = -1;
+        if (len_sq != 0) { // in case of 0 length line
+            param = dot / len_sq;
+        }
+
+        var xx, yy;
+
+        if (param < 0) {
+            xx = lineStart.x;
+            yy = lineStart.y;
+        } else if (param > 1) {
+            xx = lineEnd.x;
+            yy = lineEnd.y;
+        } else {
+            xx = lineStart.x + param * C;
+            yy = lineStart.y + param * D;
+        }
+
+        var dx = point.x - xx;
+        var dy = point.y - yy;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+    // function getLineDistance(point, lineStart, lineEnd) {
+        
+    //     const px = point.x;
+    //     const py = point.y;
+    //     const ax = lineStart.x;
+    //     const ay = lineStart.y;
+    //     const bx = lineEnd.x;
+    //     const by = lineEnd.y;
+
+    //     // Calculate the vector from A to B
+    //     const AB = { x: bx - ax, y: by - ay };
+    //     // Calculate the vector from A to P
+    //     const AP = { x: px - ax, y: py - ay };
+
+    //     // Calculate the magnitude of AB vector
+    //     const AB_length = Math.sqrt(AB.x * AB.x + AB.y * AB.y);
+    //     if (AB_length === 0) {
+    //         // Handle the case where the line segment is a point
+    //         return Math.sqrt(AP.x * AP.x + AP.y * AP.y);
+    //     }
+
+    //     // Normalize the AB vector
+    //     const AB_normalized = { x: AB.x / AB_length, y: AB.y / AB_length };
+
+    //     // Project vector AP onto AB to find the magnitude of the projection
+    //     const projection_length = AP.x * AB_normalized.x + AP.y * AB_normalized.y;
+
+    //     // Handle cases where the projection falls outside the AB segment
+    //     if (projection_length < 0) {
+    //         // Closest to point A
+    //         return Math.sqrt(AP.x * AP.x + AP.y * AP.y);
+    //     } else if (projection_length > AB_length) {
+    //         // Closest to point B, calculate vector BP and its magnitude
+    //         const BP = { x: px - bx, y: py - by };
+    //         return Math.sqrt(BP.x * BP.x + BP.y * BP.y);
+    //     }
+
+    //     // Calculate the closest point on AB to P
+    //     const closestPoint = { x: ax + AB_normalized.x * projection_length, y: ay + AB_normalized.y * projection_length };
+    //     // Calculate the vector from P to the closest point
+    //     const PC = { x: closestPoint.x - px, y: closestPoint.y - py };
+
+    //     // Return the magnitude of the PC vector, which is the distance from P to the line segment AB
+    //     return Math.sqrt(PC.x * PC.x + PC.y * PC.y);
+    // }
+
+    //Define a Function to Highlight the Nearest Border Line
+    let highlightLine;
+
+    function highlightNearestBorderLine(pointer) {
+        let minDistance = Infinity;
+        let closestSegment = null;
+
+        let current = verticesList.head;
+        do {
+           
+            const next = current.next || verticesList.head;
+            console.log("dsd",current.data,next.data)
+            const start = transformCoordinates([current.data]);
+            const end = transformCoordinates([next.data]);
+
+            const distance = getLineDistance(pointer, start[0], end[0]);
+            console.log("distance",distance)
+            if ( distance < 500) { // Adjust proximity threshold as needed
+                console.log("fff=>>",start,end)
+                minDistance = distance;
+                closestSegment = [start, end];
+            }
+
+            current = current.next;
+        } while (current && current !== verticesList.head);
+
+        if (closestSegment) {
+            if (highlightLine) canvas.remove(highlightLine);
+
+            highlightLine = new fabric.Line([closestSegment[0].x, closestSegment[0].y, closestSegment[1].x, closestSegment[1].y], {
+                stroke: 'red',
+                strokeWidth: 2,
+                selectable: false,
+                evented: false,
+            });
+
+            canvas.add(highlightLine);
+            canvas.bringToFront(highlightLine);
+            canvas.renderAll();
+        } else if (highlightLine) {
+            canvas.remove(highlightLine);
+            highlightLine = null;
+            canvas.renderAll();
+        }
+    }
+
+    canvas.on('mouse:move', function(options) {
+        const pointer = canvas.getPointer(options.e);
+        highlightNearestBorderLine(pointer);
+    });
+
+
+    canvas.on('mouse:down', function(options) {
+        if (highlightLine) {
+            const pointer = canvas.getPointer(options.e);
+            const newGeoCoord = transformCanvasToGeo(pointer.x, pointer.y);
+
+            let inserted = false;
+            let current = verticesList.head;
+            do {
+                const next = current.next || verticesList.head;
+                const start = current.data;
+                const end = next.data;
+
+                // Check if the highlight line matches the current line segment
+                if (highlightLine.x1 === transformCoordinates([start])[0].x && highlightLine.y1 === transformCoordinates([start])[0].y) {
+                    const newNode = new Node(newGeoCoord, current, next);
+                    current.next = newNode;
+                    if (next) {
+                        next.prev = newNode;
+                    }
+                    inserted = true;
+                    break;
+                }
+                current = current.next;
+            } while (current && current !== verticesList.head && !inserted);
+
+            if (inserted) {
+                redrawPolygon();
+            }
+        }
+    });
+    
+
+    canvas.on('mouse:over', function(e) {
+        if (e.target && e.target.type === 'circle') {
+            // Get the coordinates stored in the circle object
+            var coords = e.target.geoCoord;
+            var tooltipText = `Lat: ${coords[0].toFixed(4)}, Lng: ${coords[1].toFixed(4)}`;
+
+            // Position and show the tooltip
+            var tooltip = document.getElementById('tooltip');
+            tooltip.innerHTML = tooltipText;
+            tooltip.style.display = 'block';
+            tooltip.style.left = e.e.clientX + 'px';
+            tooltip.style.top = e.e.clientY + 'px';
+        }
+    });
+
+    canvas.on('mouse:out', function(e) {
+        if (e.target && e.target.type === 'circle') {
+            // Hide the tooltip
+            var tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'none';
+        }
+    });
+    canvas.on('mouse:dblclick', function(options) {
+        if (options.target && options.target.type === 'circle') {
+            var circle = options.target;
+            var index = circle.vertexIndex; // Retrieve the index of the vertex
+            var geoCoord = geoCoordinates[index]; // Get the corresponding geographical coordinates
+
+            // Calculate the position for the popup (you might need to adjust this)
+            var popupX = options.e.clientX;
+            var popupY = options.e.clientY;
+
+            // Show the popup for editing
+            showPopup(popupX, popupY, geoCoord[0], geoCoord[1]);
+            editIndex = index; // Set the global index for the edited vertex
+        }
+    });
+    canvas.on('object:moving', function(e) {
+        console.log('object:moving')
+        if (e.target && e.target.type === 'circle') {
+            // Calculate the new geographic coordinates based on the circle's position
+            var newCoords = transformCanvasToGeo(e.target.left, e.target.top);
+
+            // Find the linked list node associated with this circle
+            let current = verticesList.head;
+            while (current) {
+                if (current.circle === e.target) {
+                    // Update the node's data with the new coordinates
+                    current.data = newCoords;
+                    break;
+                }
+                current = current.next;
+            }
+
+            // Update the tooltip with the new coordinates
+            var tooltip = document.getElementById('tooltip');
+            tooltip.innerHTML = `Lat: ${newCoords[0].toFixed(4)}, Lng: ${newCoords[1].toFixed(4)}`;
+            tooltip.style.left = e.e.clientX + 'px';
+            tooltip.style.top = e.e.clientY + 'px';
+        }
+    });
+
+
+    // Update Coordinates on Drag End
+    // Use the object:modified event to finalize the position of the point and update the geoCoordinates array when the drag is completed:
+    canvas.on('object:modified', function(e) {
+        if (e.target && e.target.type === 'circle') {
+            // Update the geoCoordinates array with the final coordinates
+            var finalCoords = transformCanvasToGeo(e.target.left, e.target.top);
+            geoCoordinates[e.target.vertexIndex] = finalCoords;
+
+            // Redraw the polygon with the updated coordinates
+            redrawPolygon();
+
+            // Hide the tooltip
+            var tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'none';
+        }
+    });
+
+    var canvasPoints = transformCoordinates(geoCoordinates);
+    var polygon = new fabric.Polygon(canvasPoints, {
+        stroke: 'blue',
+        strokeWidth: 2,
+        fill: 'rgba(0,0,255,0.3)',
+        selectable: false
+    });
+    redrawPolygon();
+</script>
+
+</body>
+</html>
