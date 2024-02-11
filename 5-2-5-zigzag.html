@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adjustable Zigzag Path Inside Polygon</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+    <style>
+        body { margin: 0; }
+        canvas { border: 1px solid #888; }
+    </style>
+</head>
+<body>
+
+<canvas id="myCanvas" width="800" height="800"></canvas>
+
+<script>
+    var canvas = new fabric.Canvas('myCanvas', { selection: false });
+
+    // Example polygon points
+    var polygonPoints = [
+        new fabric.Point(100, 100),
+        new fabric.Point(300, 100),
+        new fabric.Point(300, 300),
+        new fabric.Point(100, 300)
+    ];
+
+    // Create and add polygon to canvas
+    var polygon = new fabric.Polygon(polygonPoints.map(p => ({ x: p.x, y: p.y })), {
+        fill: 'rgba(0,0,0,0)',
+        stroke: 'blue',
+        strokeWidth: 2,
+        selectable: false
+    });
+    canvas.add(polygon);
+
+    // Generate initial zigzag path within the polygon
+    var zigzagPoints = generateZigzagPathWithinPolygon(polygonPoints, 5, 20);
+    var zigzagPath = new fabric.Polyline(zigzagPoints, {
+        stroke: 'red',
+        strokeWidth: 2,
+        fill: null,
+        selectable: false
+    });
+    canvas.add(zigzagPath);
+
+    // Create handles for each point on the zigzag path
+    zigzagPoints.forEach((point, index) => {
+        var circle = new fabric.Circle({
+            left: point.x,
+            top: point.y,
+            strokeWidth: 2,
+            radius: 5,
+            fill: '#fff',
+            stroke: '#666',
+            hasControls: false,
+            hasBorders: false,
+            lockRotation: true,
+            originX: 'center',
+            originY: 'center',
+            pointIndex: index // Custom property to identify the point
+        });
+
+        // Add functionality to move handle within polygon and update zigzag path
+        circle.on('moving', function(options) {
+            var pointer = canvas.getPointer(options.e);
+
+            // Check if new position is within polygon
+            if (isPointInPolygon(pointer, polygonPoints)) {
+                // Update zigzag path point
+                zigzagPath.points[this.pointIndex] = { x: pointer.x, y: pointer.y };
+                zigzagPath.set({ dirty: true }); // Mark the zigzag path as "dirty" to force re-render
+                canvas.renderAll();
+            } else {
+                // Prevent movement outside polygon
+                options.target.set({ left: options.target.originalLeft, top: options.target.originalTop });
+            }
+        });
+
+        canvas.add(circle);
+    });
+
+    // Function to generate initial zigzag path points within the polygon
+    function generateZigzagPathWithinPolygon(polygonPoints, step, amplitude) {
+        var points = [];
+        for (var i = 0; i < polygonPoints.length; i++) {
+            var startPoint = polygonPoints[i];
+            var endPoint = polygonPoints[(i + 1) % polygonPoints.length];
+            // Generate zigzag between startPoint and endPoint
+            var segmentPoints = generateZigzagBetweenPoints(startPoint, endPoint, step, amplitude);
+            points.push(...segmentPoints);
+        }
+        return points;
+    }
+
+    // Function to generate zigzag points between two points
+    function generateZigzagBetweenPoints(startPoint, endPoint, step, amplitude) {
+        var points = [];
+        var dx = endPoint.x - startPoint.x;
+        var dy = endPoint.y - startPoint.y;
+        var distance = Math.sqrt(dx * dx + dy * dy);
+        var steps = distance / step;
+        var angle = Math.atan2(dy, dx);
+
+        for (var i = 0; i < steps; i++) {
+            var x = startPoint.x + dx * (i / steps);
+            var y = startPoint.y + dy * (i / steps);
+            var offset = i % 2 == 0 ? amplitude : -amplitude;
+            var offsetX = offset * Math.sin(angle + Math.PI / 2);
+            var offsetY = offset * Math.cos(angle + Math.PI / 2);
+            points.push({ x: x + offsetX, y: y - offsetY });
+        }
+
+        return points;
+    }
+
+    // Function to check if a point is inside a given polygon
+    function isPointInPolygon(point, polygonPoints) {
+        var x = point.x, y = point.y;
+        var inside = false;
+        for (var i = 0, j = polygonPoints.length - 1; i < polygonPoints.length; j = i++) {
+            var xi = polygonPoints[i].x, yi = polygonPoints[i].y;
+            var xj = polygonPoints[j].x, yj = polygonPoints[j].y;
+
+            var intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+
+    canvas.renderAll();
+</script>
+
+</body>
+</html>

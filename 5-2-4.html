@@ -21,12 +21,14 @@
 <body>
 
 <canvas id="myCanvas" width="800" height="800"></canvas>
+<button id="createZigzagButton">Add Zigzag Path</button>
+
 <div id="editPopup">
     <label>Latitude: <input type="text" id="editLat"></label><br>
     <label>Longitude: <input type="text" id="editLng"></label><br>
     <button onclick="saveEdit()">Save</button>
     <button onclick="closePopup()">Cancel</button>
-    <button onclick="deleteVertex()">Delete</button>
+    <button onclick="deleteVertex(event)" data-type="border" id="btnDelete">Delete</button>
 </div>
 <div id="tooltip" style="display: none; position: absolute; background-color: #fff; border: 1px solid #000; padding: 5px; pointer-events: none; z-index: 100;"></div>
 
@@ -278,21 +280,29 @@
         }
         closePopup();
     }
-    function deleteVertex() {
-        if (editIndex !== -1) {
-            let current = verticesList.head;
-            let index = 0;
-            while (current !== null) {
-                if (index === editIndex) {
-                    verticesList.remove(current);
-                    break;
+
+    function deleteVertex(e) {
+        if(e.target.getAttribute('data-type')=='border'){
+            if (editIndex !== -1) {
+                let current = verticesList.head;
+                let index = 0;
+                while (current !== null) {
+                    if (index === editIndex) {
+                        verticesList.remove(current);
+                        break;
+                    }
+                    current = current.next;
+                    index++;
                 }
-                current = current.next;
-                index++;
+                redrawPolygon();
+                closePopup();
             }
-            redrawPolygon();
+        }else{
+            deleteSelectedInnerVertex();
             closePopup();
         }
+        
+
     }
     function drawVertices(points) {
         let index = 0;
@@ -477,7 +487,7 @@
         }
     });
 
-/**
+    /**
      * INNER FIELD MAPPING
      * 
      * Add a Click Event Listener for Adding Points Inside the Polygon 
@@ -494,7 +504,10 @@
     // Initialize a variable to handle click timing
     var clickDelay = 300; // 300 ms delay between clicks to differentiate single and double clicks
     var lastClickTime = 0;
-
+    // Flag to indicate if an existing point is being interacted with
+    var interactingWithPoint = false;
+    var selectedInnerCircle = null; // Variable to hold the currently selected circle
+    var circleIdCounter = 1;
 
     // Define a Node class for internal points
         class InternalPointNode {
@@ -530,7 +543,7 @@
             find(circle) {
                 let current = this.head;
                 while (current !== null) {
-                    if (current.data === circle) return current;
+                    if (current.data.id === circle.id) return current; // Compare using unique IDs
                     current = current.next;
                 }
                 return null; // If the circle is not found in the list
@@ -583,17 +596,18 @@
             originY: 'center',
             hasBorders: false,
             hasControls: false,
-            selectable: false,
             lat: lat, // Set latitude
             lng: lng, // Set longitude
-            pointType: 'inner'
+            pointType: 'inner',
+            selectable: true,
+            id: 'circle_' + circleIdCounter++
         });
 
         canvas.add(circle);
         // Draw line only if not adding via double-click
         // Add the new circle to the linked list
         var newNode = internalPointsList.add(circle);
-
+        console.log("internalPointsList",internalPointsList)
         // Draw a line if there is a previous node and not adding via double-click
         if (newNode.prev && !addingPointViaDoubleClick) {
             drawLineBetweenPoints(newNode.prev.data, newNode.data);
@@ -603,7 +617,53 @@
         addingPointViaDoubleClick = false;
     }
 
+    function redrawLinesAndPoints() {
+        // Remove existing lines and circles
+        canvas.getObjects().forEach(function(obj) {
+            if (obj.pointType === 'inner' || obj.pointType === 'innerLine') {
+                canvas.remove(obj);
+            }
+        });
 
+        // Iterate through the linked list of internal points to redraw circles and lines
+        var current = internalPointsList.head;
+        while (current) {
+            // Get the circle data from the node
+            var circleData = current.data;
+
+            // Redraw the circle with updated positions
+            var newCircle = new fabric.Circle({
+                radius: 10,
+                fill: 'yellow',
+                left: circleData.left,
+                top: circleData.top,
+                originX: 'center',
+                originY: 'center',
+                hasBorders: false,
+                hasControls: false,
+                lat: circleData.lat, // Use the updated latitude
+                lng: circleData.lng, // Use the updated longitude
+                pointType: 'inner', // Mark as an inner point
+                selectable: true,
+                id: 'circle_' + circleIdCounter++
+            });
+
+            // Replace the old circle data in the linked list with the new circle
+            current.data = newCircle;
+
+            // Add the new circle to the canvas
+            canvas.add(newCircle);
+
+            // Draw a line to the next point if it exists
+            if (current.next) {
+                drawLineBetweenPoints(newCircle, current.next.data);
+            }
+
+            current = current.next;
+        }
+
+        canvas.renderAll(); // Re-render the canvas to reflect the changes
+    }
     // Implement drawLineBetweenPoints
     function drawLineBetweenPoints(fromPoint, toPoint) {
         var line = new fabric.Line([fromPoint.left, fromPoint.top, toPoint.left, toPoint.top], {
@@ -611,16 +671,59 @@
             strokeWidth: 2,
             selectable: false,
             evented: false,
+            pointType: 'innerLine'
         });
         canvas.add(line);
     }
-
-    function deleteInternalPoint(circle) {
-        const node = internalPointsList.find(circle);
-        if (node) {
-            internalPointsList.remove(node);
-            canvas.remove(circle);
+    function deleteSelectedInnerVertex() {
+        console.log("tttyt",selectedInnerCircle)
+        if (selectedInnerCircle) {
+            deleteInnerVertex(selectedInnerCircle); // Call your deletion function with the selected circle
+            selectedInnerCircle = null; // Clear the selection after deletion
         }
+    }
+    function deleteInnerVertex(circle) {
+             // Find the node corresponding to the circle
+            const node = internalPointsList.find(circle);
+            if (!node) {
+                console.error('Circle not found in the linked list');
+                return; // Exit if the circle is not found
+            }
+
+            // Remove the circle from the canvas
+            canvas.remove(circle);
+
+            // If the node to be deleted is between two other nodes, connect those nodes with a new line
+            if (node.prev && node.next) {
+                // Remove the old line connecting the node to its previous node, if it exists
+                if (node.prev.line) {
+                    canvas.remove(node.prev.line);
+                }
+                // Remove the old line connecting the node to its next node, if it exists
+                if (node.line) {
+                    canvas.remove(node.line);
+                }
+
+                // Draw a new line between the previous and next nodes
+                const newLine = drawLineBetweenPoints(node.prev.data, node.next.data);
+                // Update the previous node's 'next' line reference to the new line
+                node.prev.line = newLine;
+                // Update the next node's 'prev' line reference to the new line
+                node.next.line = newLine;
+            } else if (node.line) {
+                // If the node only has a line connecting to the next node, remove it
+                canvas.remove(node.line);
+            } else if (node.prev && node.prev.line) {
+                // If the node only has a line connecting to the previous node, remove it
+                canvas.remove(node.prev.line);
+            }
+
+            // Remove the node from the linked list
+            internalPointsList.remove(node);
+
+            // Redraw all internal points and lines to reflect the current state
+            redrawLinesAndPoints();
+        
     }
 
     // Function to check if a point is inside a polygon (ray-casting method)
@@ -651,7 +754,7 @@
     }
     // Assuming each circle object representing an internal point has `lat` and `lng` properties
     // Function to show edit popup for internal points
-    function showEditPopupForInternalPoint(circle) {
+    function showEditPopupForInternalPoint(circle,type='border') {
         var popup = document.getElementById('editPopup');
         // Set popup position near the point
         popup.style.left = circle.left + 'px';
@@ -659,6 +762,10 @@
         // Pre-fill the input fields with the point's current latitude and longitude
         document.getElementById('editLat').value = circle.lat || '';
         document.getElementById('editLng').value = circle.lng || '';
+        // TODO 
+        let btnDelete = document.getElementById('btnDelete');
+        btnDelete.setAttribute('data-type', 'inner');
+
         popup.style.display = 'block';
         // Save the current editing circle index
         editIndex = internalPoints.indexOf(circle);
@@ -698,36 +805,59 @@
             closePopup();
         }
     }
+    
+
     // Modify the 'mouse:dblclick' event handler to include internal points
     canvas.on('mouse:dblclick', function(e) {
-        if (e.target && e.target.pointType === 'inner') {
-            console.log("uuu")
+        if (e.target && e.target.type === 'circle' && e.target.pointType === 'inner') {
             // Prevent adding a new point by setting the last click time to the current time
             lastClickTime = new Date().getTime();
             // Show edit popup for the double-clicked internal point
-            showEditPopupForInternalPoint(e.target);
+            showEditPopupForInternalPoint(e.target,'inner');
             // Set flag to true to indicate adding via double-click
             addingPointViaDoubleClick = true;
+              // If an inner circle is clicked, set it as the selected circle
+            selectedInnerCircle = e.target;
+            console.log("selectedInnerCircle",selectedInnerCircle)
+        }else{
+            // If the click is not on an inner circle, clear the selection
+            selectedInnerCircle = null;
         }
     });
 
     canvas.on('mouse:down', function(options) {
         var pointer = canvas.getPointer(options.e);
         var currentTime = new Date().getTime();
-
         // Check if the click is not on an object and is inside the polygon
+        if (canvas.getActiveObject() && canvas.getActiveObject().type === 'circle') {
+            // The click is on an existing point, so we're likely moving it
+            return;
+        }
+
+        if (!options.target) { // If the click is not on an object
+            canvas.discardActiveObject(); // Deselect any active object
+            canvas.requestRenderAll(); // Re-render the canvas
+
+            var pointer = canvas.getPointer(options.e);
+            if (isPointInPolygon(pointer, polygon)) {
+                addInternalPoint(pointer);
+            }
+        }
         if (isPointInPolygon(pointer, polygon)) {
+            // The click is inside the polygon and not on an existing point, so we can add a new point
             if (currentTime - lastClickTime >= clickDelay) {
                 // Treat as a single click if outside the delay window
                 addPointOnClick(pointer);
-                setTimeout(function() {
-                    if (currentTime - lastClickTime >= clickDelay) {
-                        // Add an internal point only if a subsequent click hasn't occurred
-                        addPointOnClick(pointer);
-                    }
-                }, clickDelay);
+                // TODO
+                // setTimeout(function() {
+                //     if (currentTime - lastClickTime >= clickDelay) {
+                //         // Add an internal point only if a subsequent click hasn't occurred
+                //         addPointOnClick(pointer);
+                //     }
+                // }, clickDelay);
             }
         }
+
         lastClickTime = currentTime; // Update the last click time
         
         // var pointer = canvas.getPointer(options.e);
@@ -738,6 +868,22 @@
         // } else {
         //     canvas.defaultCursor = 'default';
         // }
+    });
+    canvas.on('object:modified', function(e) {
+        if (e.target.type === 'circle' && e.target.pointType === 'inner') {
+            var movedCircle = e.target;
+            var newCoords = transformCanvasToGeo(movedCircle.left, movedCircle.top);
+
+            // Update the corresponding node in the linked list with new coordinates
+            var node = internalPointsList.find(movedCircle);
+            if (node) {
+                node.data.lat = newCoords[0];
+                node.data.lng = newCoords[1];
+            }
+
+            // Redraw lines connecting the points with updated positions
+            redrawLinesAndPoints();
+        }
     });
     canvas.on('object:moving', function(e) {
         if (e.target.pointType === 'inner') {
@@ -754,7 +900,105 @@
             canvas.defaultCursor = 'default';
         }
     });
-   
+    canvas.on('object:selected', function(options) {
+        console.log("canvas.getActiveObject()2",canvas.getActiveObject())
+        if (options.target.type === 'circle') {
+            // A circle has been selected, handle accordingly
+        }
+    });
+
+    // or
+
+    canvas.on('selection:created', function(options) {
+        console.log("canvas.getActiveObject()3",canvas.getActiveObject())
+        if (options.target.type === 'circle') {
+            // A circle has been selected, handle accordingly
+        }
+    });
+    canvas.on('selection:updated', function(event) {
+        console.log('Selection:updated:', event.target);
+    });
+    canvas.on('after:render', function() {
+        // Redraw lines or connections here
+    });
+    function isPointInPolygonNew(point, polygonPoints) {
+        let x = point.x, y = point.y;
+
+        let inside = false;
+        for (let i = 0, j = polygonPoints.length - 1; i < polygonPoints.length; j = i++) {
+            let xi = polygonPoints[i].x, yi = polygonPoints[i].y;
+            let xj = polygonPoints[j].x, yj = polygonPoints[j].y;
+
+            let intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+
+        return inside;
+    }
+
+
+
+    function generateZigzagPathWithinPolygon(polygon, padding = 10, step = 20) {
+        // Get the bounding box of the polygon and apply padding
+        const bbox = polygon.getBoundingRect();
+        const minX = bbox.left + padding;
+        const maxX = bbox.left + bbox.width - padding;
+        const minY = bbox.top + padding;
+        const maxY = bbox.top + bbox.height - padding;
+
+        const points = [];
+        let currentX = minX;
+        let currentY = maxY;
+        let direction = 'up';
+        // Extract points from the polygon object
+        let polygonPoints = polygon.points.map(p => ({ x: p.x + polygon.left, y: p.y + polygon.top }));
+
+        while (currentX <= maxX) {
+            // Check if the next point is within the polygon
+            if (isPointInPolygonNew(new fabric.Point(currentX, currentY), polygonPoints)) {
+                points.push({ x: currentX, y: currentY });
+            } else {
+                // Adjust the currentY to bring the point back inside the polygon
+                currentY = direction === 'up' ? currentY + step : currentY - step;
+            }
+
+            // Switch direction at each step
+            direction = direction === 'up' ? 'down' : 'up';
+            currentY += direction === 'up' ? -step : step;
+
+            // Ensure currentY stays within bounds
+            currentY = Math.max(minY, Math.min(maxY, currentY));
+
+            currentX += step / 2; // Half step for x to create a sharper zigzag
+        }
+
+        return points;
+    }
+
+    function drawZigzagPath(points) {
+        const pathData = ['M', points[0].x, points[0].y];
+        points.forEach(point => {
+            pathData.push('L', point.x, point.y);
+        });
+
+        const zigzagPath = new fabric.Path(pathData.join(' '), {
+            stroke: 'red',
+            strokeWidth: 2,
+            fill: null,
+            selectable: false
+        });
+
+        canvas.add(zigzagPath);
+    }
+
+
+    document.getElementById('createZigzagButton').addEventListener('click', function() {
+        const zigzagPoints = generateZigzagPathWithinPolygon(polygon, 20, 10); // Adjust stepSize and zigzagHeight as needed
+        drawZigzagPath(zigzagPoints);
+    });
+
+
+
 </script>
 
 </body>
