@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas geospatial Polygon Play</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+    <style>
+        body { margin: 0; }
+        canvas { border: 1px solid #888; }
+        #editPopup {
+            display: none;
+            position: absolute;
+            background: white;
+            border: 1px solid #888;
+            padding: 10px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="myCanvas" width="800" height="800"></canvas>
+<div id="editPopup">
+    <label>Latitude: <input type="text" id="editLat"></label><br>
+    <label>Longitude: <input type="text" id="editLng"></label><br>
+    <button onclick="saveEdit()">Save</button>
+    <button onclick="closePopup()">Cancel</button>
+    <button onclick="deleteVertex()">Delete</button>
+</div>
+<div id="tooltip" style="display: none; position: absolute; background-color: #fff; border: 1px solid #000; padding: 5px; pointer-events: none; z-index: 100;"></div>
+
+<script>
+    var canvas = new fabric.Canvas('myCanvas', { subTargetCheck: true });
+    canvas.selection = false; // Disable group selection
+
+
+     /**
+      * BORDER FIELD MAPPING
+      * 
+      * 1)  I want to show field marked point based on the multiple latitude and longitude coordinates provided. Each points are connected each other though a line. Fill some color for border line ,point and inside border portion.
+        2)  I want to edit each border point . So When I double click a particular point, 
+            I want to show a responsive popup were I can edit that particular latitude and longitude. 
+            When I press save button that new coordinates need to be updated in the diagram.
+        3)  I  want to move a particular point when I single press on that particular point. 
+            and need to show the real time new latitude and longitude coordinates on tooltip. 
+            When I release the point , need to update that particular point with the new coordinates based on the  last released point.
+            I need a complete solution using JS. Use latest technologies or libraries  available at now for my visual beautiful and interactive.
+        4)  I want a delete option in the same popup which arise when I double click on a pointer. 
+            When I click on that button, I need to delete that particular point and the previous and next coordinates are connected together. 
+            Use linked list data structure for connecting previous and next.
+            Your HTML document outlines a comprehensive interactive mapping application using Fabric.js, focusing on rendering a polygon based on geocoordinates, editing vertex positions, and providing a UI for point manipulation. Below is an overview of the code structure and key functionalities:
+
+            HTML Structure:
+            A <canvas> element where the polygon and its vertices are drawn.
+            An edit popup (#editPopup) for modifying the latitude and longitude of selected vertices.
+            A tooltip div (#tooltip) for displaying real-time coordinate information.
+            CSS:
+            Basic styling for the canvas, edit popup, and tooltip to ensure proper positioning and visibility.
+            JavaScript - Key Components:
+            Fabric.js Canvas Initialization:
+
+            A Fabric.js canvas instance is created with specific configurations like subTargetCheck for finer control over object selection.
+            Data Structures:
+
+            BorderNode and BorderLinkedList classes are defined to manage the polygon's vertices using a doubly linked list, facilitating efficient insertion and deletion operations.
+            Geocoordinate Transformation:
+
+            Functions transformCoordinates and transformCanvasToGeo are implemented to convert between geocoordinates and canvas coordinates, ensuring the polygon fits within the canvas area.
+            Polygon Rendering and Interaction:
+
+            The redrawPolygon function, which draws the polygon and its vertices on the canvas based on the current list of geocoordinates.
+            Event handlers for mouse interactions (mouse:over, mouse:out, mouse:dblclick, object:moving, object:modified) to provide functionalities like displaying tooltips, editing vertex coordinates through a popup, moving vertices, and updating coordinates upon drag release.
+            
+            //TODO
+            Suggested Improvements and Considerations:
+            Event Handler Optimization: Ensure event handlers like mouse:over and object:moving are optimized for performance, as frequent updates (especially with tooltips and coordinate transformations) can lead to lag in user interaction.
+            UI Responsiveness: Test the popup and tooltip positioning across different devices and screen sizes to ensure consistent user experience.
+            Error Handling: Add checks to prevent errors, such as ensuring valid geocoordinates are entered in the popup and handling edge cases where vertices might be dragged outside the intended area.
+            Feature Completeness: Implement any missing functionalities outlined in your requirements, such as adding and connecting internal points within the polygon, which seems to be planned but not fully integrated in the provided code.
+            Final Notes:
+            This application provides a robust foundation for interactive geospatial data visualization and manipulation. Further development could include features like saving the updated polygon data to a server, importing/exporting geocoordinate data, and integrating with mapping APIs for enhanced context and functionality.
+    * 
+     **/
+
+    var geoCoordinates =[];
+    var latLonCoordinates = [
+        [40.71269361696359, -74.00649922615291],
+        [40.712634674937796, -74.00638657337429],
+        [40.71258579614513, -74.00642144209148],
+        [40.71264186299252, -74.0064965439439],
+        [40.71262892449348, -74.00656628137828],
+        [40.71269361696359, -74.00649922615291]
+    ];
+    var editIndex = -1;
+    const padding = 20; 
+    class BorderNode {
+        constructor(data, prev = null, next = null) {
+            this.data = data;
+            this.prev = prev;
+            this.next = next;
+            //TODO: MEMORY CHECK
+            this.circle = null;  // Reference to the Fabric.js circle object
+        }
+    }
+
+    class BorderLinkedList {
+        constructor() {
+            this.head = null;
+            this.tail = null;
+        }
+
+        add(data) {
+            const newNode = new BorderNode(data);
+            if (!this.head) {
+                this.head = newNode;
+                this.tail = newNode;
+            } else {
+                newNode.prev = this.tail;
+                this.tail.next = newNode;
+                this.tail = newNode;
+            }
+        }
+
+        remove(node) {
+            if (!node.prev) {
+                this.head = node.next;
+                if (this.head) {
+                    this.head.prev = null;
+                }
+            } else {
+                node.prev.next = node.next;
+            }
+
+            if (!node.next) {
+                this.tail = node.prev;
+                if (this.tail) {
+                    this.tail.next = null;
+                }
+            } else {
+                node.next.prev = node.prev;
+            }
+        }
+
+        toArray() {
+            let arr = [];
+            let current = this.head;
+            while (current) {
+                arr.push(current.data);
+                current = current.next;
+            }
+            return arr;
+        }
+    }
+
+    // Initialize the linked list with geoCoordinates
+    var verticesList = new BorderLinkedList();
+    latLonCoordinates.forEach(coord => verticesList.add(coord));
+    geoCoordinates = verticesList.toArray();
+    var latMin, latMax, lngMin, lngMax;
+
+    // Function to scale and translate coordinates
+    // function transformCoordinates(coords) {
+    //     let latMin = Math.min(...coords.map(coord => coord[0]));
+    //     let latMax = Math.max(...coords.map(coord => coord[0]));
+    //     let lngMin = Math.min(...coords.map(coord => coord[1]));
+    //     let lngMax = Math.max(...coords.map(coord => coord[1]));
+    //     // Calculate scale factors
+    //     let latScale = canvas.height / (latMax - latMin);
+    //     let lngScale = canvas.width / (lngMax - lngMin);
+
+    //     // Use the smaller scale factor to ensure the shape fits in both dimensions
+    //     let scale = Math.min(latScale, lngScale) * 0.8; // 0.8 to add some padding
+
+    //     // Translate and scale coordinates
+    //     return coords.map(coord => ({
+    //         x: (coord[1] - lngMin) * scale + (canvas.width - (lngMax - lngMin) * scale) / 2,
+    //         y: (latMax - coord[0]) * scale + (canvas.height - (latMax - latMin) * scale) / 2
+    //     }));
+    // }
+    // function transformCanvasToGeo(x, y) {
+    //     let latMin = Math.min(...geoCoordinates.map(coord => coord[0]));
+    //     let latMax = Math.max(...geoCoordinates.map(coord => coord[0]));
+    //     let lngMin = Math.min(...geoCoordinates.map(coord => coord[1]));
+    //     let lngMax = Math.max(...geoCoordinates.map(coord => coord[1]));
+
+    //     let latRange = latMax - latMin;
+    //     let lngRange = lngMax - lngMin;
+
+    //     let canvasWidth = canvas.width;
+    //     let canvasHeight = canvas.height;
+
+    //     let latScale = canvasHeight / latRange;
+    //     let lngScale = canvasWidth / lngRange;
+
+    //     let scale = Math.min(latScale, lngScale) * 0.8; // The same scale as used in transformCoordinates
+
+    //     // Reverse the transformation
+    //     let lng = (x - (canvasWidth - lngRange * scale) / 2) / scale + lngMin;
+    //     let lat = latMax - (y - (canvasHeight - latRange * scale) / 2) / scale;
+
+    //     return [lat, lng];
+    // }
+    function transformCoordinates(coords) {
+        let latMin = Math.min(...coords.map(coord => coord[0]));
+        let latMax = Math.max(...coords.map(coord => coord[0]));
+        let lngMin = Math.min(...coords.map(coord => coord[1]));
+        let lngMax = Math.max(...coords.map(coord => coord[1]));
+
+        // Define padding for the canvas to avoid drawing on the edge
+        const padding = 50; // Adjust padding as needed
+
+        // Adjusted canvas size after considering padding
+        const adjustedWidth = canvas.width - padding * 2;
+        const adjustedHeight = canvas.height - padding * 2;
+
+        // Calculate scale factors considering padding
+        let latScale = adjustedHeight / (latMax - latMin);
+        let lngScale = adjustedWidth / (lngMax - lngMin);
+
+        // Use the smaller scale factor to ensure the shape fits within both dimensions
+        let scale = Math.min(latScale, lngScale);
+
+        // Translate and scale coordinates, applying padding to center the shape on the canvas
+        return coords.map(coord => ({
+            x: (coord[1] - lngMin) * scale + padding,
+            y: (latMax - coord[0]) * scale + padding // Inverting Y to match the canvas coordinate system
+        }));
+    }
+
+    function transformCanvasToGeo(x, y) {
+        let latMin = Math.min(...geoCoordinates.map(coord => coord[0]));
+        let latMax = Math.max(...geoCoordinates.map(coord => coord[0]));
+        let lngMin = Math.min(...geoCoordinates.map(coord => coord[1]));
+        let lngMax = Math.max(...geoCoordinates.map(coord => coord[1]));
+
+        const padding = 50; // Must be the same padding used in transformCoordinates
+
+        // Adjusted canvas size after considering padding
+        const adjustedWidth = canvas.width - padding * 2;
+        const adjustedHeight = canvas.height - padding * 2;
+
+        // Calculate scale factors considering padding
+        let latScale = adjustedHeight / (latMax - latMin);
+        let lngScale = adjustedWidth / (lngMax - lngMin);
+
+        // Use the same scale factor as in transformCoordinates
+        let scale = Math.min(latScale, lngScale);
+
+        // Reverse the transformation, accounting for padding
+        let lng = (x - padding) / scale + lngMin;
+        let lat = latMax - (y - padding) / scale;
+
+        return [lat, lng];
+    }
+
+    
+    function showPopup(x, y, lat, lng) {
+        var popup = document.getElementById('editPopup');
+        popup.style.left = x + 'px';
+        popup.style.top = y + 'px';
+        document.getElementById('editLat').value = lat;
+        document.getElementById('editLng').value = lng;
+        popup.style.display = 'block';
+    }
+
+    function closePopup() {
+        document.getElementById('editPopup').style.display = 'none';
+    }
+
+    function saveEdit() {
+        var newLat = parseFloat(document.getElementById('editLat').value);
+        var newLng = parseFloat(document.getElementById('editLng').value);
+
+        if (!isNaN(newLat) && !isNaN(newLng) && editIndex >= 0 && editIndex < geoCoordinates.length) {
+            geoCoordinates[editIndex] = [newLat, newLng];
+            redrawPolygon();
+        }
+        closePopup();
+    }
+    function deleteVertex() {
+        if (editIndex !== -1) {
+            let current = verticesList.head;
+            let index = 0;
+            while (current !== null) {
+                if (index === editIndex) {
+                    verticesList.remove(current);
+                    break;
+                }
+                current = current.next;
+                index++;
+            }
+            redrawPolygon();
+            closePopup();
+        }
+    }
+    function drawVertices(points) {
+        let index = 0;
+        let current = verticesList.head;
+        while (current) {
+            var circle = new fabric.Circle({
+                radius: 10, // Small radius for the circle
+                fill: 'red', // Fill color for the circle
+                left: points[index].x,
+                top: points[index].y,
+                hasBorders: false,
+                hasControls: false,
+                originX: 'center',
+                originY: 'center',
+                vertexIndex: index, // Custom property to identify the vertex,
+                evented: true, // Set to true to allow event listeners on the circle
+                // lockRotation: true,
+                // lockScalingX: true,
+                // lockScalingY: true,
+                // selectable: false,
+                hoverCursor: 'move', // Cursor indicates the circle can be moved
+                moveCursor: 'move',
+                vertexIndex: index,
+                
+            });
+            circle.geoCoord = geoCoordinates[index];
+            // Associate the Fabric.js circle with the linked list node
+            current.circle = circle;
+            circle.pointType = 'border';
+            
+            // Add the circle to the canvas
+            canvas.add(circle);
+
+            current = current.next;
+            index++;
+        }
+    }
+    
+    function redrawPolygon() {
+        // Remove existing polygon and circles from the canvas
+        //TODO: MODIFY MEMORY
+        if (polygon) {
+            canvas.remove(polygon);
+            canvas.getObjects('circle').forEach(function(circle) {
+                canvas.remove(circle);
+            });
+        }
+
+        // Redraw the polygon with updated coordinates
+        geoCoordinates = verticesList.toArray();
+        var canvasPoints = transformCoordinates(geoCoordinates);
+        polygon = new fabric.Polygon(canvasPoints, {
+            stroke: 'blue',
+            strokeWidth: 2,
+            fill: 'rgba(0,0,255,0.3)',
+            selectable: false
+        });
+        polygon.pointType = 'border';
+        canvas.add(polygon);
+
+        // Redraw the vertices circles
+        drawVertices(canvasPoints);
+        canvas.renderAll(); // Ensure the canvas is re-rendered
+    }
+
+    
+
+    var canvasPoints = transformCoordinates(geoCoordinates);
+    var polygon = new fabric.Polygon(canvasPoints, {
+        stroke: 'blue',
+        strokeWidth: 2,
+        fill: 'rgba(0,0,255,0.3)',
+        selectable: false,
+        objectCaching: false // Disable object caching for dynamic objects
+    
+    });
+    polygon.pointType = 'border';
+    redrawPolygon();
+    
+
+
+    
+
+    
+    /**
+     * 
+     * CORE HEART SECTION
+     * //TODO
+     **/
+     canvas.on('mouse:over', function(e) {
+        console.log("'mouse:over'",e.target)
+        if (e.target && e.target.type === 'circle' && e.target.geoCoord) {
+            var coords = e.target.geoCoord;
+            var tooltipText = `Lat: ${coords[0].toFixed(4)}, Lng: ${coords[1].toFixed(4)}`;
+            var tooltip = document.getElementById('tooltip');
+            tooltip.innerHTML = tooltipText;
+            tooltip.style.display = 'block';
+            tooltip.style.left = e.e.clientX + 15 + 'px'; // Offset to prevent cursor overlap
+            tooltip.style.top = e.e.clientY + 15 + 'px';
+        }
+    });
+    canvas.on('mouse:out', function(e) {
+        console.log("'mouse:out'",e.target)
+        if (e.target && e.target.type === 'circle') {
+            var tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'none';
+        }
+    });
+    // Optionally, add an event listener to hide the tooltip when the mouse leaves the canvas area
+    document.getElementById('myCanvas').addEventListener('mouseleave', function() {
+        var tooltip = document.getElementById('tooltip');
+        tooltip.style.display = 'none';
+    });
+    canvas.on('mouse:dblclick', function(e) {
+        console.log("'mouse:dblclick'",e.target)
+        if (e.target && e.target.type === 'circle' && e.target.geoCoord) {
+            var circle = e.target;
+            var geoCoord = circle.geoCoord;
+            var popupX = e.e.clientX;
+            var popupY = e.e.clientY;
+            showPopup(popupX, popupY, geoCoord[0], geoCoord[1]);
+            editIndex = circle.vertexIndex;
+        }
+    });
+
+    // To implement bounds checking within the object:moving event, you can constrain the movement of vertices so they stay within the canvas boundaries or a specified geographical area. The approach involves calculating the new position's latitude and longitude when a vertex is moved and then checking if these values are within the allowed bounds. If the new position is outside the bounds, you can revert the vertex to its last valid position or clamp it to the nearest valid position within the bounds.
+    // newCoords holds the new latitude and longitude values based on the vertex's position on the canvas.
+    // latMin, latMax, lngMin, and lngMax define the geographical bounds within which vertices can move. Adjust these values based on your requirements.
+    // If the new coordinates are outside the defined bounds, the vertex's position is reset to its original position (originalLeft and originalTop), effectively preventing the move.
+    // If the new coordinates are within bounds, the vertex's geoCoord property is updated, and the tooltip is adjusted to reflect the new coordinates.
+    // This approach ensures that all vertices stay within the defined geographical or canvas boundaries during interaction, maintaining the integrity of the polygon's shape relative to the defined area.
+    //  Here's how you could implement this in your object:moving event handler:
+    canvas.on('object:moving', function(e) {
+        console.log("'mouse:moving'",e.target)
+        if (e.target && e.target.type === 'circle') {
+            // Calculate the new geographic coordinates based on the circle's position
+            var newCoords = transformCanvasToGeo(e.target.left, e.target.top);
+            
+            // Define your geographical bounds
+            var latMin = -90, latMax = 90;  // Example latitude bounds
+            var lngMin = -180, lngMax = 180; // Example longitude bounds
+
+            // Check if the new coordinates are within the bounds
+            var withinLatBounds = newCoords[0] >= latMin && newCoords[0] <= latMax;
+            var withinLngBounds = newCoords[1] >= lngMin && newCoords[1] <= lngMax;
+
+            if (!withinLatBounds || !withinLngBounds) {
+                // If the new position is out of bounds, prevent the move or clamp to bounds
+                e.target.left = e.target.originalLeft;
+                e.target.top = e.target.originalTop;
+            } else {
+                // Update the circle's geoCoord property with the new, valid coordinates
+                e.target.geoCoord = newCoords;
+
+                // Update the tooltip with the new coordinates
+                var tooltip = document.getElementById('tooltip');
+                tooltip.innerHTML = `Lat: ${newCoords[0].toFixed(4)}, Lng: ${newCoords[1].toFixed(4)}`;
+                tooltip.style.display = 'block';
+                tooltip.style.left = e.e.clientX + 15 + 'px'; // Adjusted for cursor offset
+                tooltip.style.top = e.e.clientY + 15 + 'px';
+            }
+        }
+    });
+    // Update Coordinates on Drag End
+    // Use the object:modified event to finalize the position of the point and update the geoCoordinates array when the drag is completed:
+    canvas.on('object:modified', function(e) {
+        console.log("'object:modified'",e.target)
+        if (e.target && e.target.type === 'circle') {
+            var finalCoords = transformCanvasToGeo(e.target.left, e.target.top);
+            // Find and update the corresponding node in the linked list
+            let current = verticesList.head;
+            let index = 0;
+            while (current) {
+                if (index === e.target.vertexIndex) {
+                    current.data = finalCoords; // Update the node's data
+                    break;
+                }
+                current = current.next;
+                index++;
+            }
+            redrawPolygon(); // Redraw the polygon with updated coordinates
+        }
+    });
+
+/**
+     * INNER FIELD MAPPING
+     * 
+     * Add a Click Event Listener for Adding Points Inside the Polygon 
+     * I want to add pointers inside polygon, when I click inside polygon.Then I click again.During that time,
+       I want to connect each pointer like the way border polygon connected. 
+       Where I can click that pointers and edit them in the same way of  border polygon.
+     **/
+     
+
+     var internalPoints = []; // To store internal points
+    var lastClickedPoint = null; // To keep track of the last clicked internal point
+
+    //Implement addInternalPoint
+    function addInternalPoint(pointer) {
+            // Proceed to add the point if it's strictly inside the polygon
+            var circle = new fabric.Circle({
+                radius: 5,
+                fill: 'green',
+                left: pointer.x,
+                top: pointer.y,
+                originX: 'center',
+                originY: 'center',
+                hasBorders: false,
+                hasControls: false,
+                selectable: false
+            });
+
+            circle.pointType = 'inner';
+            canvas.add(circle);
+    }
+
+
+    // Implement drawLineBetweenPoints
+    function drawLineBetweenPoints(point1, point2) {
+        var line = new fabric.Line([point1.left + point1.radius, point1.top + point1.radius, point2.left + point2.radius, point2.top + point2.radius], {
+            stroke: 'green',
+            strokeWidth: 2,
+            selectable: false,
+            evented: false
+        });
+        canvas.add(line);
+    }
+    function calculateMinMax() {
+        minX = Math.min(...geoCoordinates.map(coord => coord[0]));
+        minY = Math.min(...geoCoordinates.map(coord => coord[1]));
+        maxX = Math.max(...geoCoordinates.map(coord => coord[0]));
+        maxY = Math.max(...geoCoordinates.map(coord => coord[1]));
+    }
+    // function isPointInsidePolygon(point, polygonCoords) {
+    //     var x = point.x, y = point.y;
+    //     var inside = false;
+    //     for (var i = 0, j = polygonCoords.length - 1; i < polygonCoords.length; j = i++) {
+    //         var xi = polygonCoords[i][1], yi = polygonCoords[i][0];
+    //         var xj = polygonCoords[j][1], yj = polygonCoords[j][0];
+
+    //         var intersect = ((yi > y) != (yj > y))
+    //             && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    //         if (intersect) inside = !inside;
+    //     }
+
+    //     return inside;
+    // }
+    // function isPointInsideFabricPolygon(point, polygon) {
+    //     console.log("point",point)
+    //     return polygon.containsPoint(point);
+    // }
+    function isClickInsidePolygon(point, polygon) {
+        // Convert the mouse click point to an object with x and y properties
+        // var pointObj = new fabric.Point(point.x, point.y);
+        // // Use the containsPoint method of the polygon to check if the point is inside
+        // return polygon.containsPoint(pointObj);
+
+
+        // Convert the click point to the polygon's local coordinate system
+        // var localPoint = fabric.util.transformPoint(
+        //     point,
+        //     fabric.util.invertTransform(polygon.calcTransformMatrix())
+        // );
+        var pointObj = new fabric.Point(point.x, point.y);
+        // console.log("localPoint",localPoint,pointObj)
+        // Use the containsPoint method to check if the point is inside the polygon's bounds
+        return polygon.containsPoint(pointObj);
+    }
+   
+    // canvas.on('mouse:down', function(options) {
+    //     // var pointer = canvas.getPointer(options.e);
+    //     // if(isPointInsideFabricPolygon(pointer, polygon)){
+    //     //     addInternalPoint(pointer);
+    //     // }
+    //     var pointer = canvas.getPointer(options.e);
+    //     // Check if the pointer is inside the polygon before adding the internal point
+    //     if (isPointInsideFabricPolygon(pointer, polygon)) {
+    //         // The pointer is inside the polygon, you can proceed with adding an internal point
+    //         addInternalPoint(pointer);
+    //     }
+    // });
+
+    canvas.on('mouse:down', function(options) {
+    if (options.target && options.target.type === 'polygon') {
+        var pointer = canvas.getPointer(options.e);
+        var point = new fabric.Point(pointer.x, pointer.y);
+
+        // Use the utility function to check if the click is inside the polygon
+        if (isClickInsidePolygon(point, options.target)) {
+            // Click is inside the polygon
+            // Add your logic here for what should happen on an inside click
+            console.log('Click inside the polygon');
+        } else {
+            // Click is outside the polygon
+            // You can handle outside clicks or simply ignore them
+            console.log('Click outside the polygon');
+        }
+    }
+});
+
+    // canvas.addEventListener('click', function (event) {
+    //     var rect = canvas.getBoundingClientRect();
+    //     var x = event.clientX - rect.left;
+    //     var y = event.clientY - rect.top;
+    //     var pointer = canvas.getPointer(options.e);
+      
+    //     // // Check if the click is inside the initial polygon
+    //     // if (isPointInsidePolygon(x, y)) {
+    //     // }
+    // });
+    
+    canvas.on('object:moving', function(e) {
+        if (e.target.pointType === 'inner') {
+            const pointer = { x: e.target.left, y: e.target.top };
+
+        //     if (isWithinPaddingFromBorder(pointer)) {
+        //         // Prevent the move or revert to the last valid position
+        //         e.target.set({ left: e.target.originalLeft, top: e.target.originalTop });
+        //         e.target.setCoords(); // Update the object's coordinates after the move
+        //     }
+        }
+    });
+
+
+</script>
+
+</body>
+</html>
+<!-- if (e.target.pointType === 'border') {
+    // Handle outer border section
+
+} else if (e.target.pointType === 'inner') {
+    // Handle inner border section
+} -->
