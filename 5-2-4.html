@@ -496,72 +496,79 @@
     var lastClickTime = 0;
 
 
-    class InternalNode {
-        constructor(circle) {
-            this.circle = circle;
-            this.next = null;
-            this.prev = null;
-        }
-    }
-
-    class InternalLinkedList {
-        constructor() {
-            this.head = null;
-            this.tail = null;
-        }
-
-        add(circle) {
-            const newNode = new InternalNode(circle);
-            if (!this.head) {
-                this.head = newNode;
-                this.tail = newNode;
-            } else {
-                newNode.prev = this.tail;
-                this.tail.next = newNode;
-                this.tail = newNode;
+    // Define a Node class for internal points
+        class InternalPointNode {
+            constructor(data, prev = null, next = null) {
+                this.data = data; // Contains the circle object
+                this.prev = prev; // Reference to the previous node
+                this.next = next; // Reference to the next node
             }
         }
 
-        remove(node) {
-            if (!node.prev) {
-                this.head = node.next;
-                if (this.head) {
-                    this.head.prev = null;
+        // Define a LinkedList class for internal points
+        class InternalPointsLinkedList {
+            constructor() {
+                this.head = null; // Start with an empty list
+                this.tail = null;
+            }
+
+            // Method to add a new node to the list
+            add(circle) {
+                const newNode = new InternalPointNode(circle);
+                if (!this.head) {
+                    this.head = newNode;
+                    this.tail = newNode;
+                } else {
+                    newNode.prev = this.tail;
+                    this.tail.next = newNode;
+                    this.tail = newNode;
                 }
-            } else {
-                node.prev.next = node.next;
+                return newNode; // Return the new node for further use
             }
-            if (!node.next) {
-                this.tail = node.prev;
-                if (this.tail) {
-                    this.tail.next = null;
+
+            // Method to find a node by its circle object
+            find(circle) {
+                let current = this.head;
+                while (current !== null) {
+                    if (current.data === circle) return current;
+                    current = current.next;
                 }
-            } else {
-                node.next.prev = node.prev;
+                return null; // If the circle is not found in the list
             }
+
+            // Method to remove a node from the list
+            remove(node) {
+                if (!node) return; // Do nothing if the node is null
+
+                if (node.prev) node.prev.next = node.next;
+                else this.head = node.next; // If node is the head
+
+                if (node.next) node.next.prev = node.prev;
+                else this.tail = node.prev; // If node is the tail
+
+                // Clear the removed node's pointers
+                node.next = null;
+                node.prev = null;
+            }
+
+            // Method to convert the linked list to an array
+            toArray() {
+                let arr = [];
+                let current = this.head;
+                while (current) {
+                    arr.push(current.data);
+                    current = current.next;
+                }
+                return arr; // Return the array of circle objects
+            }
+
+            // Additional methods as needed...
         }
 
-        find(circle) {
-            let current = this.head;
-            while (current) {
-                if (current.circle === circle) {
-                    return current;
-                }
-                current = current.next;
-            }
-            return null;
-        }
-        toArray() {
-            let arr = [];
-            let current = this.head;
-            while (current) {
-                arr.push(current.data);
-                current = current.next;
-            }
-            return arr;
-        }
-    }
-    var internalPointsList = new InternalLinkedList();
+
+        // Initialize the linked list for internal points
+        var internalPointsList = new InternalPointsLinkedList();
+
 
 
     //Implement addInternalPoint
@@ -583,14 +590,13 @@
         });
 
         canvas.add(circle);
-        internalPoints.push(circle);
-        internalPointsList.add(circle);
-        console.log("internalPointsList",internalPointsList)
         // Draw line only if not adding via double-click
-        if (internalPoints.length > 1 && !addingPointViaDoubleClick) {
-            var fromPoint = internalPoints[internalPoints.length - 2];
-            var toPoint = circle;
-            drawLineBetweenPoints(fromPoint, toPoint);
+        // Add the new circle to the linked list
+        var newNode = internalPointsList.add(circle);
+
+        // Draw a line if there is a previous node and not adding via double-click
+        if (newNode.prev && !addingPointViaDoubleClick) {
+            drawLineBetweenPoints(newNode.prev.data, newNode.data);
         }
 
         // Reset the flag
