@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas geospatial Polygon Play</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { margin: 0; }
+        /* Ensure the canvas fits within its container */
+        .canvas-container { max-width: 100%; width:600px;height:600px; }
+        #myCanvas {
+            max-width: 100%; /* Ensure it doesn't overflow its container */
+            height: auto; /* Maintain aspect ratio */
+            max-height: 800px; /* Example max height, adjust as needed */
+        }
+
+        /* Container to control canvas size */
+        #canvasContainer {
+            width: 100%; /* Full width of its parent */
+            max-width: 1200px; /* Max width on large screens, adjust as needed */
+            margin: 0 auto; /* Center the container if the screen is wider */
+        }
+         #editPopup {
+            display: none;
+            position: absolute;
+            background: white;
+            border: 1px solid #888;
+            padding: 10px;
+            z-index: 10;
+        }
+        .modal-backdrop{z-index: -1}
+        .modal-holder.modal-backdrop{z-index: 100}
+        .modal-holder + .modal-dialog {z-index: 1000}
+        canvas {
+            max-width: 100%;
+            max-height: 100vh; /* Adjust based on your layout */
+            display: block; /* Remove extra space below the canvas */
+        }
+        @media (max-width: 768px) { /* Tablets and below */
+            canvas {
+                max-height: 50vh; /* Smaller devices might need a smaller canvas */
+            }
+        }
+
+        @media (max-width: 480px) { /* Mobile phones */
+            canvas {
+                max-height: 30vh; /* Further reduce for small screens */
+            }
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="container mt-4" id="canvasContainer">
+    <div class="row" style="width:600px;height: 600px; background-color: rgba(255,0,0,0.1);">
+        <div class="col w-100 h-100 p-3">
+            <canvas id="myCanvas" width="600" height="600"></canvas>
+            <!-- <canvas id="myCanvas" class="col w-100 h-100 p-3"></canvas> Removed inline width and height -->
+        </div>
+    </div>
+    <div class="row mt-3">
+        <div class="col">
+            <!-- <button id="createZigzagButton" class="btn btn-primary">Add Zigzag Path</button> -->
+        </div>
+    </div>
+</div>
+
+<!-- Edit Popup as Bootstrap Modal -->
+<div class="modal fade" id="editPopup" data-backdrop="false" style="background-color: rgba(0, 0, 0, 0.5);"  tabindex="-1" aria-labelledby="editPopupLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="editPopupLabel">Edit Coordinates</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <form>
+            <div class="mb-3">
+              <label for="editLat" class="form-label">Latitude:</label>
+              <input type="text" class="form-control" id="editLat">
+            </div>
+            <div class="mb-3">
+              <label for="editLng" class="form-label">Longitude:</label>
+              <input type="text" class="form-control" id="editLng">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="saveEdit()">Save</button>
+          <button type="button" class="btn btn-danger" onclick="deleteVertex(event)" data-type="border" id="btnDelete">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div id="tooltip" style="display: none; position: absolute; background-color: #fff; border: 1px solid #000; padding: 5px; pointer-events: none; z-index: 100;"></div>
+
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    var canvas = new fabric.Canvas('myCanvas', { subTargetCheck: true });
+    canvas.selection = false; // Disable group selection
+
+
+     /**
+      * BORDER FIELD MAPPING
+      * 
+      * 1)  I want to show field marked point based on the multiple latitude and longitude coordinates provided. Each points are connected each other though a line. Fill some color for border line ,point and inside border portion.
+        2)  I want to edit each border point . So When I double click a particular point, 
+            I want to show a responsive popup were I can edit that particular latitude and longitude. 
+            When I press save button that new coordinates need to be updated in the diagram.
+        3)  I  want to move a particular point when I single press on that particular point. 
+            and need to show the real time new latitude and longitude coordinates on tooltip. 
+            When I release the point , need to update that particular point with the new coordinates based on the  last released point.
+            I need a complete solution using JS. Use latest technologies or libraries  available at now for my visual beautiful and interactive.
+        4)  I want a delete option in the same popup which arise when I double click on a pointer. 
+            When I click on that button, I need to delete that particular point and the previous and next coordinates are connected together. 
+            Use linked list data structure for connecting previous and next.
+            Your HTML document outlines a comprehensive interactive mapping application using Fabric.js, focusing on rendering a polygon based on geocoordinates, editing vertex positions, and providing a UI for point manipulation. Below is an overview of the code structure and key functionalities:
+
+            HTML Structure:
+            A <canvas> element where the polygon and its vertices are drawn.
+            An edit popup (#editPopup) for modifying the latitude and longitude of selected vertices.
+            A tooltip div (#tooltip) for displaying real-time coordinate information.
+            CSS:
+            Basic styling for the canvas, edit popup, and tooltip to ensure proper positioning and visibility.
+            JavaScript - Key Components:
+            Fabric.js Canvas Initialization:
+
+            A Fabric.js canvas instance is created with specific configurations like subTargetCheck for finer control over object selection.
+            Data Structures:
+
+            BorderNode and BorderLinkedList classes are defined to manage the polygon's vertices using a doubly linked list, facilitating efficient insertion and deletion operations.
+            Geocoordinate Transformation:
+
+            Functions transformCoordinates and transformCanvasToGeo are implemented to convert between geocoordinates and canvas coordinates, ensuring the polygon fits within the canvas area.
+            Polygon Rendering and Interaction:
+
+            The redrawPolygon function, which draws the polygon and its vertices on the canvas based on the current list of geocoordinates.
+            Event handlers for mouse interactions (mouse:over, mouse:out, mouse:dblclick, object:moving, object:modified) to provide functionalities like displaying tooltips, editing vertex coordinates through a popup, moving vertices, and updating coordinates upon drag release.
+            
+            //TODO
+            Suggested Improvements and Considerations:
+            Event Handler Optimization: Ensure event handlers like mouse:over and object:moving are optimized for performance, as frequent updates (especially with tooltips and coordinate transformations) can lead to lag in user interaction.
+            UI Responsiveness: Test the popup and tooltip positioning across different devices and screen sizes to ensure consistent user experience.
+            Error Handling: Add checks to prevent errors, such as ensuring valid geocoordinates are entered in the popup and handling edge cases where vertices might be dragged outside the intended area.
+            Feature Completeness: Implement any missing functionalities outlined in your requirements, such as adding and connecting internal points within the polygon, which seems to be planned but not fully integrated in the provided code.
+            Final Notes:
+            This application provides a robust foundation for interactive geospatial data visualization and manipulation. Further development could include features like saving the updated polygon data to a server, importing/exporting geocoordinate data, and integrating with mapping APIs for enhanced context and functionality.
+    * 
+     **/
+     40.712675466903335 , -74.0064971703023
+    var geoCoordinates =[];
+    var latLonCoordinates = [
+        [40.71269361696359, -74.00649922615291],
+        [40.712634674937796, -74.00638657337429],
+        [40.71258579614513, -74.00642144209148],
+        [40.71264186299252, -74.0064965439439],
+        [40.71262892449348, -74.00656628137828]
+    ];
+    var editIndex = -1;
+    const padding = 20; 
+    let latMin = 0;
+    let latMax = 0;
+    let lngMin = 0;
+    let lngMax = 0;
+    function calculateMinMaxlatLngCoordinates(coords){
+         latMin = Math.min(...coords.map(coord => coord[0]));
+         latMax = Math.max(...coords.map(coord => coord[0]));
+         lngMin = Math.min(...coords.map(coord => coord[1]));
+         lngMax = Math.max(...coords.map(coord => coord[1]));
+    }
+     calculateMinMaxlatLngCoordinates(latLonCoordinates)
+
+    class BorderNode {
+        constructor(data, prev = null, next = null) {
+            this.data = data;
+            this.prev = prev;
+            this.next = next;
+            //TODO: MEMORY CHECK
+            this.circle = null;  // Reference to the Fabric.js circle object
+        }
+    }
+
+    class BorderLinkedList {
+        constructor() {
+            this.head = null;
+            this.tail = null;
+        }
+
+        add(data) {
+            const newNode = new BorderNode(data);
+            if (!this.head) {
+                this.head = newNode;
+                this.tail = newNode;
+            } else {
+                newNode.prev = this.tail;
+                this.tail.next = newNode;
+                this.tail = newNode;
+            }
+        }
+
+        remove(node) {
+            if (!node.prev) {
+                this.head = node.next;
+                if (this.head) {
+                    this.head.prev = null;
+                }
+            } else {
+                node.prev.next = node.next;
+            }
+
+            if (!node.next) {
+                this.tail = node.prev;
+                if (this.tail) {
+                    this.tail.next = null;
+                }
+            } else {
+                node.next.prev = node.prev;
+            }
+        }
+
+        toArray() {
+            let arr = [];
+            let current = this.head;
+            while (current) {
+                arr.push(current.data);
+                current = current.next;
+            }
+            return arr;
+        }
+    }
+
+    // Initialize the linked list with geoCoordinates
+    var verticesList = new BorderLinkedList();
+    latLonCoordinates.forEach(coord => verticesList.add(coord));
+    geoCoordinates = verticesList.toArray();
+    // TODO Scaling 
+    // Function to scale and translate coordinates
+    // function transformCoordinates(coords) {
+    //     let latMin = Math.min(...coords.map(coord => coord[0]));
+    //     let latMax = Math.max(...coords.map(coord => coord[0]));
+    //     let lngMin = Math.min(...coords.map(coord => coord[1]));
+    //     let lngMax = Math.max(...coords.map(coord => coord[1]));
+    //     // Calculate scale factors
+    //     let latScale = canvas.height / (latMax - latMin);
+    //     let lngScale = canvas.width / (lngMax - lngMin);
+
+    //     // Use the smaller scale factor to ensure the shape fits in both dimensions
+    //     let scale = Math.min(latScale, lngScale) * 0.8; // 0.8 to add some padding
+
+    //     // Translate and scale coordinates
+    //     return coords.map(coord => ({
+    //         x: (coord[1] - lngMin) * scale + (canvas.width - (lngMax - lngMin) * scale) / 2,
+    //         y: (latMax - coord[0]) * scale + (canvas.height - (latMax - latMin) * scale) / 2
+    //     }));
+    // }
+    // function transformCanvasToGeo(x, y) {
+    //     let latMin = Math.min(...geoCoordinates.map(coord => coord[0]));
+    //     let latMax = Math.max(...geoCoordinates.map(coord => coord[0]));
+    //     let lngMin = Math.min(...geoCoordinates.map(coord => coord[1]));
+    //     let lngMax = Math.max(...geoCoordinates.map(coord => coord[1]));
+
+    //     let latRange = latMax - latMin;
+    //     let lngRange = lngMax - lngMin;
+
+    //     let canvasWidth = canvas.width;
+    //     let canvasHeight = canvas.height;
+
+    //     let latScale = canvasHeight / latRange;
+    //     let lngScale = canvasWidth / lngRange;
+
+    //     let scale = Math.min(latScale, lngScale) * 0.8; // The same scale as used in transformCoordinates
+
+    //     // Reverse the transformation
+    //     let lng = (x - (canvasWidth - lngRange * scale) / 2) / scale + lngMin;
+    //     let lat = latMax - (y - (canvasHeight - latRange * scale) / 2) / scale;
+
+    //     return [lat, lng];
+    // }
+    function transformCoordinates(coords) {
+        // let latMin = Math.min(...coords.map(coord => coord[0]));
+        // let latMax = Math.max(...coords.map(coord => coord[0]));
+        // let lngMin = Math.min(...coords.map(coord => coord[1]));
+        // let lngMax = Math.max(...coords.map(coord => coord[1]));
+
+        if(latMax ===latMin ||  lngMax ===lngMin){
+            console.error("Invalid coordinate range.")
+        }
+        // Define padding for the canvas to avoid drawing on the edge
+        const padding = 50; // Adjust padding as needed
+
+        // Adjusted canvas size after considering padding
+        const adjustedWidth = canvas.width - padding * 2;
+        const adjustedHeight = canvas.height - padding * 2;
+
+        // Calculate scale factors considering padding
+        let latScale = adjustedHeight / (latMax - latMin);
+        let lngScale = adjustedWidth / (lngMax - lngMin);
+
+        // Use the smaller scale factor to ensure the shape fits within both dimensions
+        let scale = Math.min(latScale, lngScale);
+
+        // Translate and scale coordinates, applying padding to center the shape on the canvas
+        return coords.map(coord => {
+            let x = (coord[1] - lngMin) * scale + padding;
+            let y = (latMax - coord[0]) * scale + padding;
+            if(isNaN(x) || isNaN(y)){
+                console.error("invalid computation for coordinates",coord)
+            }
+            return {x,y};
+        });
+    }
+
+    function transformCanvasToGeo(x, y) {
+        // let latMin = Math.min(...geoCoordinates.map(coord => coord[0]));
+        // let latMax = Math.max(...geoCoordinates.map(coord => coord[0]));
+        // let lngMin = Math.min(...geoCoordinates.map(coord => coord[1]));
+        // let lngMax = Math.max(...geoCoordinates.map(coord => coord[1]));
+
+        const padding = 50; // Must be the same padding used in transformCoordinates
+
+        // Adjusted canvas size after considering padding
+        const adjustedWidth = canvas.width - padding * 2;
+        const adjustedHeight = canvas.height - padding * 2;
+
+        // Calculate scale factors considering padding
+        let latScale = adjustedHeight / (latMax - latMin);
+        let lngScale = adjustedWidth / (lngMax - lngMin);
+
+        // Use the same scale factor as in transformCoordinates
+        let scale = Math.min(latScale, lngScale);
+
+        // Reverse the transformation, accounting for padding
+        let lng = (x - padding) / scale + lngMin;
+        let lat = latMax - (y - padding) / scale;
+
+        return [lat, lng];
+    }
+
+    
+    // function showPopup(x, y, lat, lng) {
+    //     var popup = document.getElementById('editPopup');
+    //     popup.style.left = x + 'px';
+    //     popup.style.top = y + 'px';
+    //     document.getElementById('editLat').value = lat;
+    //     document.getElementById('editLng').value = lng;
+    //     popup.style.display = 'block';
+    // }
+    function showPopup(x, y, lat, lng) {
+        // Set the values of the input fields
+        document.getElementById('editLat').value = lat;
+        document.getElementById('editLng').value = lng;
+
+        // Create a new Bootstrap modal instance and show it
+        var editPopup = new bootstrap.Modal(document.getElementById('editPopup'));
+        editPopup.show();
+    }
+    
+    // function closePopup() {
+    //     document.getElementById('editPopup').style.display = 'none';
+    // }
+    function closePopup() {
+    // Get the Bootstrap modal instance and hide it
+        var editPopup = bootstrap.Modal.getInstance(document.getElementById('editPopup'));
+        if (editPopup) {
+            editPopup.hide();
+        }
+    }
+
+    function saveEdit() {
+        var newLat = parseFloat(document.getElementById('editLat').value);
+        var newLng = parseFloat(document.getElementById('editLng').value);
+        if(selectedInnerCircle && selectedInnerCircle.pointType ==='inner'){
+            var node = internalPointsList.find(selectedInnerCircle);
+            if(node){
+                node.data.set({
+                    lat:newLat,
+                    lng:newLng
+                })
+            }
+            var canvasCoords = transformCoordinates(internalPointsList.toGetLatLongArray())[selectedInnerCircle.id];
+            node.data.set({left:canvasCoords.x,top:canvasCoords.y});
+            redrawLinesAndPoints()
+        }else if( typeof editIndex ==='number' && editIndex >=0 && editIndex < geoCoordinates.length){
+            geoCoordinates[editIndex] = [newLat,newLng];
+            let current = verticesList.head;
+            let index = 0;
+            while(current !==null){
+                if(index ===editIndex){
+                    current.data = geoCoordinates[editIndex];
+                    break;
+                }
+                current.data = current.next;
+                index++;            
+            }
+            redrawPolygon()
+        }
+        selectedInnerCircle = null;
+        editIndex =-1;
+        closePopup();
+    }
+
+    function deleteVertex(e) {
+        
+        if(e.target.getAttribute('data-type')=='border'){
+            if (editIndex !== -1) {
+                let current = verticesList.head;
+                let index = 0;
+                while (current !== null) {
+                    if (index === editIndex) {
+                        verticesList.remove(current);
+                        break;
+                    }
+                    current = current.next;
+                    index++;
+                }
+                redrawPolygon();
+                closePopup();
+            }
+        }else{
+            deleteSelectedInnerVertex();
+            closePopup();
+        }
+        
+
+    }
+    function drawVertices(points) {
+        let index = 0;
+        let current = verticesList.head;
+        while (current) {
+            var circle = new fabric.Circle({
+                radius: 10, // Small radius for the circle
+                fill: 'red', // Fill color for the circle
+                left: points[index].x,
+                top: points[index].y,
+                hasBorders: false,
+                hasControls: false,
+                originX: 'center',
+                originY: 'center',
+                vertexIndex: index, // Custom property to identify the vertex,
+                evented: true, // Set to true to allow event listeners on the circle
+                // lockRotation: true,
+                // lockScalingX: true,
+                // lockScalingY: true,
+                // selectable: false,
+                hoverCursor: 'move', // Cursor indicates the circle can be moved
+                moveCursor: 'move',
+                vertexIndex: index,
+                
+            });
+            circle.geoCoord = geoCoordinates[index];
+            // Associate the Fabric.js circle with the linked list node
+            current.circle = circle;
+            circle.pointType = 'border';
+            
+            // Add the circle to the canvas
+            canvas.add(circle);
+
+            current = current.next;
+            index++;
+        }
+    }
+    
+    function redrawPolygon() {
+        // Remove existing polygon and circles from the canvas
+        //TODO: MODIFY MEMORY
+        if (polygon) {
+            canvas.remove(polygon);
+            canvas.getObjects('circle').forEach(function(circle) {
+                canvas.remove(circle);
+            });
+        }
+
+        // Redraw the polygon with updated coordinates
+        geoCoordinates = verticesList.toArray();
+        var canvasPoints = transformCoordinates(geoCoordinates);
+        polygon = new fabric.Polygon(canvasPoints, {
+            stroke: 'blue',
+            strokeWidth: 2,
+            fill: 'rgba(0,0,255,0.3)',
+            selectable: false
+        });
+        polygon.pointType = 'border';
+        canvas.add(polygon);
+
+        // Redraw the vertices circles
+        drawVertices(canvasPoints);
+        canvas.renderAll(); // Ensure the canvas is re-rendered
+    }
+
+    
+
+    var canvasPoints = transformCoordinates(geoCoordinates);
+    var polygon = new fabric.Polygon(canvasPoints, {
+        stroke: 'blue',
+        strokeWidth: 2,
+        fill: 'rgba(0,0,255,0.3)',
+        selectable: false,
+        objectCaching: false // Disable object caching for dynamic objects
+    
+    });
+    polygon.pointType = 'border';
+    redrawPolygon();
+    
+
+
+    
+
+    
+   
+
+    /**
+     * INNER FIELD MAPPING
+     * 
+     * Add a Click Event Listener for Adding Points Inside the Polygon 
+     * I want to add pointers inside polygon, when I click inside polygon.Then I click again.During that time,
+       I want to connect each pointer like the way border polygon connected. 
+       Where I can click that pointers and edit them in the same way of  border polygon.
+     **/
+     
+
+    var internalPoints = []; // To store internal points
+    var lastClickedPoint = null; // To keep track of the last clicked internal point
+    // Flag to track if a point is being added via double-click
+    var addingPointViaDoubleClick = false;
+    // Initialize a variable to handle click timing
+    var clickDelay = 300; // 300 ms delay between clicks to differentiate single and double clicks
+    var lastClickTime = 0;
+    // Flag to indicate if an existing point is being interacted with
+    var interactingWithPoint = false;
+    var selectedInnerCircle = null; // Variable to hold the currently selected circle
+    var circleIdCounter = 0;
+
+    // Define a Node class for internal points
+        class InternalPointNode {
+            constructor(data, prev = null, next = null) {
+                this.data = data; // Contains the circle object
+                this.prev = prev; // Reference to the previous node
+                this.next = next; // Reference to the next node
+            }
+        }
+
+        // Define a LinkedList class for internal points
+        class InternalPointsLinkedList {
+            constructor() {
+                this.head = null; // Start with an empty list
+                this.tail = null;
+            }
+
+            // Method to add a new node to the list
+            add(circle) {
+                const newNode = new InternalPointNode(circle);
+                if (!this.head) {
+                    this.head = newNode;
+                    this.tail = newNode;
+                } else {
+                    newNode.prev = this.tail;
+                    this.tail.next = newNode;
+                    this.tail = newNode;
+                }
+                return newNode; // Return the new node for further use
+            }
+
+            // Method to find a node by its circle object
+            find(circle) {
+                let current = this.head;
+                while (current !== null) {
+                    if (current.data.id === circle.id) return current; // Compare using unique IDs
+                    current = current.next;
+                }
+                return null; // If the circle is not found in the list
+            }
+
+            // Method to remove a node from the list
+            remove(node) {
+                if (!node) return; // Do nothing if the node is null
+
+                if (node.prev) node.prev.next = node.next;
+                else this.head = node.next; // If node is the head
+
+                if (node.next) node.next.prev = node.prev;
+                else this.tail = node.prev; // If node is the tail
+
+                // Clear the removed node's pointers
+                node.next = null;
+                node.prev = null;
+            }
+
+            // Method to convert the linked list to an array
+            toArray() {
+                let arr = [];
+                let current = this.head;
+                while (current) {
+                    arr.push(current.data);
+                    current = current.next;
+                }
+                return arr; // Return the array of circle objects
+            }
+            toGetLatLongArray(){
+                let arr = [];
+                let current = this.head;
+                while (current) {
+                    arr.push([current.data.lat,current.data.lng]);
+                    current = current.next;
+                }
+                return arr; 
+            }
+            // Additional methods as needed...
+        }
+
+
+        // Initialize the linked list for internal points
+        var internalPointsList = new InternalPointsLinkedList();
+
+
+
+    //Implement addInternalPoint
+    // Modified addInternalPoint function
+    function addInternalPoint(pointer, lat, lng) {
+        var circle = new fabric.Circle({
+            radius: 10,
+            fill: 'yellow',
+            left: pointer.x,
+            top: pointer.y,
+            originX: 'center',
+            originY: 'center',
+            hasBorders: false,
+            hasControls: false,
+            lat: lat, // Set latitude
+            lng: lng, // Set longitude
+            pointType: 'inner',
+            selectable: true,
+            id: circleIdCounter++
+        });
+
+        canvas.add(circle);
+        // Draw line only if not adding via double-click
+        // Add the new circle to the linked list
+        var newNode = internalPointsList.add(circle);
+        console.log("internalPointsList",internalPointsList)
+        // Draw a line if there is a previous node and not adding via double-click
+        if (newNode.prev && !addingPointViaDoubleClick) {
+            drawLineBetweenPoints(newNode.prev.data, newNode.data);
+        }
+
+        // Reset the flag
+        addingPointViaDoubleClick = false;
+    }
+
+    function redrawLinesAndPoints() {
+        // Remove existing lines and circles
+        canvas.getObjects().forEach(function(obj) {
+            if (obj.pointType === 'inner' || obj.pointType === 'innerLine') {
+                canvas.remove(obj);
+            }
+        });
+
+        // Iterate through the linked list of internal points to redraw circles and lines
+        var current = internalPointsList.head;
+        while (current) {
+            // Get the circle data from the node
+            var circleData = current.data;
+
+            // Redraw the circle with updated positions
+            var newCircle = new fabric.Circle({
+                radius: 10,
+                fill: 'yellow',
+                left: circleData.left,
+                top: circleData.top,
+                originX: 'center',
+                originY: 'center',
+                hasBorders: false,
+                hasControls: false,
+                lat: circleData.lat, // Use the updated latitude
+                lng: circleData.lng, // Use the updated longitude
+                pointType: 'inner', // Mark as an inner point
+                selectable: true,
+                id: circleIdCounter++
+            });
+
+            // Replace the old circle data in the linked list with the new circle
+            current.data = newCircle;
+
+            // Add the new circle to the canvas
+            canvas.add(newCircle);
+
+            // Draw a line to the next point if it exists
+            if (current.next) {
+                drawLineBetweenPoints(newCircle, current.next.data);
+            }
+
+            current = current.next;
+        }
+
+        canvas.renderAll(); // Re-render the canvas to reflect the changes
+    }
+    // Implement drawLineBetweenPoints
+    function drawLineBetweenPoints(fromPoint, toPoint) {
+        var line = new fabric.Line([fromPoint.left, fromPoint.top, toPoint.left, toPoint.top], {
+            stroke: 'black',
+            strokeWidth: 2,
+            selectable: false,
+            evented: false,
+            pointType: 'innerLine'
+        });
+        canvas.add(line);
+    }
+    function deleteSelectedInnerVertex() {
+        console.log("tttyt",selectedInnerCircle)
+        if (selectedInnerCircle) {
+            deleteInnerVertex(selectedInnerCircle); // Call your deletion function with the selected circle
+            selectedInnerCircle = null; // Clear the selection after deletion
+        }
+    }
+    function deleteInnerVertex(circle) {
+             // Find the node corresponding to the circle
+            const node = internalPointsList.find(circle);
+            if (!node) {
+                console.error('Circle not found in the linked list');
+                return; // Exit if the circle is not found
+            }
+
+            // Remove the circle from the canvas
+            canvas.remove(circle);
+
+            // If the node to be deleted is between two other nodes, connect those nodes with a new line
+            if (node.prev && node.next) {
+                // Remove the old line connecting the node to its previous node, if it exists
+                if (node.prev.line) {
+                    canvas.remove(node.prev.line);
+                }
+                // Remove the old line connecting the node to its next node, if it exists
+                if (node.line) {
+                    canvas.remove(node.line);
+                }
+
+                // Draw a new line between the previous and next nodes
+                const newLine = drawLineBetweenPoints(node.prev.data, node.next.data);
+                // Update the previous node's 'next' line reference to the new line
+                node.prev.line = newLine;
+                // Update the next node's 'prev' line reference to the new line
+                node.next.line = newLine;
+            } else if (node.line) {
+                // If the node only has a line connecting to the next node, remove it
+                canvas.remove(node.line);
+            } else if (node.prev && node.prev.line) {
+                // If the node only has a line connecting to the previous node, remove it
+                canvas.remove(node.prev.line);
+            }
+
+            // Remove the node from the linked list
+            internalPointsList.remove(node);
+
+            // Redraw all internal points and lines to reflect the current state
+            redrawLinesAndPoints();
+        
+    }
+
+    // Function to check if a point is inside a polygon (ray-casting method)
+    //  The isPointInPolygon function is used to determine whether a given point lies inside a polygon. This function is particularly useful in graphics and geospatial applications where you need to detect if a user's click or a GPS coordinate falls within a defined area. The algorithm behind this function can vary, but a common approach is the Ray Casting algorithm. Here's a simplified explanation:
+
+    // Ray Casting Algorithm
+    // Concept: Imagine drawing a horizontal line (ray) from the point in question to infinity and counting how many times this line intersects the edges of the polygon. If the line intersects the polygon an odd number of times, the point is inside the polygon. If it intersects an even number of times, the point is outside.
+
+    // Implementation Steps:
+
+    // Loop through each edge of the polygon by checking each pair of consecutive vertices (points). In the case of the last vertex, check it against the first one to close the polygon.
+    // For each edge, check if the point's y coordinate is between the y coordinates of the edge's endpoints. If not, the ray cannot intersect this edge, so move to the next one.
+    // If the y coordinate condition is met, calculate the x coordinate where the ray intersects the line segment of the edge. This involves some basic geometry and algebra.
+    // If the x coordinate of the point is less than the x coordinate of the intersection, it counts as an intersection. This is because the ray is drawn to the right (positive x-direction).
+    // Edge Cases: The algorithm needs to handle cases where the point is exactly on an edge or vertex and where the ray intersects exactly at a vertex. These can be handled with small adjustments to the comparison operators or by defining specific rules for counting intersections in these cases.
+     function isPointInPolygon(point, polygon) {
+        var x = point.x, y = point.y;
+        var inside = false;
+        for (var i = 0, j = polygon.points.length - 1; i < polygon.points.length; j = i++) {
+            var xi = polygon.points[i].x, yi = polygon.points[i].y;
+            var xj = polygon.points[j].x, yj = polygon.points[j].y;
+
+            var intersect = ((yi > y) !== (yj > y))
+                && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+    // Assuming each circle object representing an internal point has `lat` and `lng` properties
+    // Function to show edit popup for internal points
+    // function showEditPopupForInternalPoint(circle,type='border') {
+    //     var popup = document.getElementById('editPopup');
+    //     // Set popup position near the point
+    //     popup.style.left = circle.left + 'px';
+    //     popup.style.top = circle.top + 'px';
+    //     // Pre-fill the input fields with the point's current latitude and longitude
+    //     document.getElementById('editLat').value = circle.lat || '';
+    //     document.getElementById('editLng').value = circle.lng || '';
+    //     // TODO 
+    //     let btnDelete = document.getElementById('btnDelete');
+    //     btnDelete.setAttribute('data-type', 'inner');
+
+    //     popup.style.display = 'block';
+    //     // Save the current editing circle index
+    //     editIndex = internalPoints.indexOf(circle);
+    //     // Indicate that a point is being edited to avoid adding a new point
+    //     addingPointViaDoubleClick = true;
+    // }
+    function showEditPopupForInternalPoint(circle) {
+        // Pre-fill the input fields with the point's current latitude and longitude
+        document.getElementById('editLat').value = circle.lat || '';
+        document.getElementById('editLng').value = circle.lng || '';
+
+        // Set the delete button data-type attribute for inner points
+        document.getElementById('btnDelete').setAttribute('data-type', 'inner');
+
+        // Show the Bootstrap modal for editing
+        var editPopup = new bootstrap.Modal(document.getElementById('editPopup'));
+        editPopup.show();
+    }
+
+    // Ensure lat and lng are defined when adding points
+    function addPointOnClick(pointer) {
+        // Convert canvas coordinates to geographic coordinates
+        var [lat, lng] = transformCanvasToGeo(pointer.x, pointer.y);
+        addInternalPoint(pointer, lat, lng);
+    }
+    
+    // Modify the saveEdit function to handle internal points
+    // function saveEdit() {
+    //     var newLat = parseFloat(document.getElementById('editLat').value);
+    //     var newLng = parseFloat(document.getElementById('editLng').value);
+
+    //     if (!isNaN(newLat) && !isNaN(newLng)) {
+    //         if (editIndex >= 0 && editIndex < internalPoints.length) {
+    //             // Update the internal point's geographic coordinates
+    //             var point = internalPoints[editIndex];
+    //             point.lat = newLat;
+    //             point.lng = newLng;
+
+    //             // Convert the new geographic coordinates to canvas coordinates
+    //             var canvasCoords = transformCoordinates([[newLat, newLng]])[0];
+
+    //             // Update the circle's position on the canvas
+    //             point.set({ left: canvasCoords.x, top: canvasCoords.y });
+    //             point.setCoords();
+
+    //             // Redraw the canvas to reflect changes
+    //             canvas.renderAll();
+    //         }
+    //         closePopup();
+    //     }
+    // }
+    
+
+    
+
+    function isPointInPolygonNew(point, polygonPoints) {
+        let x = point.x, y = point.y;
+
+        let inside = false;
+        for (let i = 0, j = polygonPoints.length - 1; i < polygonPoints.length; j = i++) {
+            let xi = polygonPoints[i].x, yi = polygonPoints[i].y;
+            let xj = polygonPoints[j].x, yj = polygonPoints[j].y;
+
+            let intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+
+        return inside;
+    }
+
+
+
+    function generateZigzagPathWithinPolygon(polygon, padding = 10, step = 20) {
+        // Get the bounding box of the polygon and apply padding
+        const bbox = polygon.getBoundingRect();
+        const minX = bbox.left + padding;
+        const maxX = bbox.left + bbox.width - padding;
+        const minY = bbox.top + padding;
+        const maxY = bbox.top + bbox.height - padding;
+
+        const points = [];
+        let currentX = minX;
+        let currentY = maxY;
+        let direction = 'up';
+        // Extract points from the polygon object
+        let polygonPoints = polygon.points.map(p => ({ x: p.x + polygon.left, y: p.y + polygon.top }));
+
+        while (currentX <= maxX) {
+            // Check if the next point is within the polygon
+            if (isPointInPolygonNew(new fabric.Point(currentX, currentY), polygonPoints)) {
+                points.push({ x: currentX, y: currentY });
+            } else {
+                // Adjust the currentY to bring the point back inside the polygon
+                currentY = direction === 'up' ? currentY + step : currentY - step;
+            }
+
+            // Switch direction at each step
+            direction = direction === 'up' ? 'down' : 'up';
+            currentY += direction === 'up' ? -step : step;
+
+            // Ensure currentY stays within bounds
+            currentY = Math.max(minY, Math.min(maxY, currentY));
+
+            currentX += step / 2; // Half step for x to create a sharper zigzag
+        }
+
+        return points;
+    }
+
+    function drawZigzagPath(points) {
+        const pathData = ['M', points[0].x, points[0].y];
+        points.forEach(point => {
+            pathData.push('L', point.x, point.y);
+        });
+
+        const zigzagPath = new fabric.Path(pathData.join(' '), {
+            stroke: 'red',
+            strokeWidth: 2,
+            fill: null,
+            selectable: false
+        });
+
+        canvas.add(zigzagPath);
+    }
+    var zigzagPath = null;
+    var zigzagPoints = null;
+    // Function to create control points for the zigzag path
+    function createControlPointsForZigzag(points) {
+        points.forEach((point, index) => {
+            const controlPoint = new fabric.Circle({
+                radius: 5,
+                fill: 'green',
+                left: point.x,
+                top: point.y,
+                hasBorders: false,
+                hasControls: false,
+                originX: 'center',
+                originY: 'center',
+                selectable: true,
+                lockRotation: true,
+                lockScalingX: true,
+                lockScalingY: true,
+                pointIndex: index // Custom property to identify the control point
+            });
+
+            // Attach event handler for moving control point
+            controlPoint.on('moving', function(event) {
+                // Update the corresponding point in the zigzag path
+                zigzagPoints[event.target.pointIndex] = {
+                    x: event.target.left,
+                    y: event.target.top
+                };
+
+                // Redraw the zigzag path with updated points
+                drawZigzagPath(zigzagPoints, true); // Pass 'true' to indicate updating existing path
+            });
+
+            canvas.add(controlPoint);
+        });
+    }
+
+    // Modified drawZigzagPath function to optionally update an existing path
+    function drawZigzagPath(points, update = false) {
+        if (update && zigzagPath) {
+            // Update the existing path's points
+            zigzagPath.path = points.map((point, index) => {
+                return index === 0 ? ['M', point.x, point.y] : ['L', point.x, point.y];
+            });
+        } else {
+            // Create a new zigzag path
+            const pathData = points.map((point, index) => {
+                return index === 0 ? ['M', point.x, point.y] : ['L', point.x, point.y];
+            });
+
+            zigzagPath = new fabric.Path(pathData.flat().join(' '), {
+                stroke: 'red',
+                strokeWidth: 2,
+                fill: null,
+                selectable: false
+            });
+
+            canvas.add(zigzagPath);
+        }
+
+        canvas.renderAll(); // Re-render the canvas to reflect changes
+    }
+
+    // Global variable to store the reference to the zigzag path
+    var zigzagPath = null;
+
+    // document.getElementById('createZigzagButton').addEventListener('click', function() {
+    //      zigzagPoints = generateZigzagPathWithinPolygon(polygon, 20, 10); // Adjust padding and step as needed
+    //    console.log("zigzagPoints",zigzagPoints)
+    //     drawZigzagPath(zigzagPoints); // Draw the initial zigzag path
+    //     createControlPointsForZigzag(zigzagPoints); // Create control points for adjusting the path
+    // });
+    // document.getElementById('createZigzagButton').addEventListener('click', function() {
+    //     const zigzagPoints = generateZigzagPathWithinPolygon(polygon, 20, 10); // Adjust stepSize and zigzagHeight as needed
+    //     drawZigzagPath(zigzagPoints);
+    // });
+
+
+ /**
+     * 
+     * CORE HEART SECTION
+     * //TODO
+     **/
+
+     /**
+      * 'mouse:over' && 'touch:move'
+     **/
+     canvas.on('mouse:over', function(e) {
+        console.log("'mouse:over'",e.target)
+        if (e.target && e.target.type === 'circle' && e.target.geoCoord) {
+            var coords = e.target.geoCoord;
+            var tooltipText = `Lat: ${coords[0].toFixed(4)}, Lng: ${coords[1].toFixed(4)}`;
+            var tooltip = document.getElementById('tooltip');
+            tooltip.innerHTML = tooltipText;
+            tooltip.style.display = 'block';
+            tooltip.style.left = e.e.clientX + 15 + 'px'; // Offset to prevent cursor overlap
+            tooltip.style.top = e.e.clientY + 15 + 'px';
+        }
+    });
+    canvas.on('touch:move', function(e) {
+        // Get the touch point from the event
+        var touchPoint = e.self.getPointer(e.e);
+        var objects = canvas.getObjects();
+
+        for (let i = 0; i < objects.length; i++) {
+            // Use isPointInObject to check if the touch point is within the object's boundaries
+            if (objects[i].type === 'circle' && canvas.isTargetTransparent(objects[i], touchPoint.x, touchPoint.y)) {
+                var coords = objects[i].geoCoord;
+                var tooltipText = `Lat: ${coords[0].toFixed(4)}, Lng: ${coords[1].toFixed(4)}`;
+                var tooltip = document.getElementById('tooltip');
+                tooltip.innerHTML = tooltipText;
+                tooltip.style.display = 'block';
+                // Position the tooltip based on the touch point
+                tooltip.style.left = e.e.touches[0].clientX + 15 + 'px';
+                tooltip.style.top = e.e.touches[0].clientY + 15 + 'px';
+                return; // Exit the loop and function once the tooltip is shown
+            }
+        }
+
+        // If no circle object is under the touch point, hide the tooltip
+        document.getElementById('tooltip').style.display = 'none';
+    });
+    /**
+      * 'mouse:over' && 'touch:move'
+     **/
+    canvas.on('mouse:out', function(e) {
+        console.log("'mouse:out'",e.target)
+        if (e.target && e.target.type === 'circle') {
+            var tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'none';
+        }
+    });
+    canvas.on('touch:end', function(e) {
+        var tooltip = document.getElementById('tooltip');
+        tooltip.style.display = 'none';
+    });
+
+    /**
+      * 'mouseleave' && 'touchmove'
+     **/
+    // Optionally, add an event listener to hide the tooltip when the mouse leaves the canvas area
+    document.getElementById('myCanvas').addEventListener('mouseleave', function() {
+        var tooltip = document.getElementById('tooltip');
+        tooltip.style.display = 'none';
+    });
+    // document.getElementById('myCanvas').addEventListener('touchend', function() {
+    //     var tooltip = document.getElementById('tooltip');
+    //     tooltip.style.display = 'none';
+    // });
+    // Hide Tooltip on Touch Move Outside Canvas (Optional)
+    // To hide the tooltip when the touch point moves outside the canvas, you can track the touch movement and check if it's outside the canvas bounds. This approach is a bit more complex and might not be necessary for all applications, as it depends on your specific user interaction model.
+    document.getElementById('myCanvas').addEventListener('touchmove', function(e) {
+        var touch = e.touches[0];
+        var canvas = document.getElementById('myCanvas');
+        var canvasRect = canvas.getBoundingClientRect();
+        var isInsideCanvas = touch.clientX >= canvasRect.left && touch.clientX <= canvasRect.right &&
+                            touch.clientY >= canvasRect.top && touch.clientY <= canvasRect.bottom;
+
+        if (!isInsideCanvas) {
+            var tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'none';
+        }
+    });
+
+    /**
+      * 'mouse:dblclick' && 'touch:end'
+     **/
+
+    canvas.on('mouse:dblclick', function(e) {
+        console.log("'mouse:dblclick'",e.target)
+        if (e.target && e.target.type === 'circle' && e.target.geoCoord) {
+            var circle = e.target;
+            var geoCoord = circle.geoCoord;
+            var popupX = e.e.clientX;
+            var popupY = e.e.clientY;
+            showPopup(popupX, popupY, geoCoord[0], geoCoord[1]);
+            editIndex = circle.vertexIndex;
+        }
+    });
+
+    // To adapt the mouse:dblclick functionality for touch devices, you'll need to handle the touchend event and implement logic to detect double taps. Touch devices do not inherently distinguish between single and double taps in the same way a mouse differentiates between single and double clicks. You can detect a double tap by tracking the time and position between two successive touchend events and determining if they occur within a short time frame and close proximity to each other.
+    // lastTap stores the time and coordinates of the last tap.
+    // doubleTapThreshold is the maximum time interval between two taps for them to be considered a double tap. You may need to adjust this value based on user experience testing.
+    // tapPositionThreshold is the maximum distance between two taps for them to be considered as part of the same double tap. This accounts for the fact that users might not tap the exact same spot on the screen.
+    // The touch:end event checks the interval and distance between the current and last tap. If both are within their respective thresholds, it's considered a double tap.
+    // If a double tap is detected on a circle (e.target), the code shows the popup at the location of the touch point and sets editIndex to the index of the tapped circle.
+    
+    var lastTap = { time: 0, x: 0, y: 0 };
+    var doubleTapThreshold = 300; // Time in milliseconds, adjust based on testing
+    var tapPositionThreshold = 20; // Distance in pixels, adjust based on testing
+
+    canvas.on('touch:end', function(e) {
+        var touchPoint = e.self.getPointer(e.e.touches[0]);
+        var currentTime = new Date().getTime();
+        var tapInterval = currentTime - lastTap.time;
+        var distance = Math.sqrt(Math.pow(touchPoint.x - lastTap.x, 2) + Math.pow(touchPoint.y - lastTap.y, 2));
+
+        if (tapInterval < doubleTapThreshold && distance < tapPositionThreshold) {
+            // Detected a double tap, now check if it's on a circle
+            if (e.target && e.target.type === 'circle' && e.target.geoCoord) {
+                var circle = e.target;
+                var geoCoord = circle.geoCoord;
+                var popupX = touchPoint.x;
+                var popupY = touchPoint.y;
+                showPopup(popupX, popupY, geoCoord[0], geoCoord[1]);
+                editIndex = circle.vertexIndex;
+            }
+        }
+
+        // Update lastTap for the next touchend event
+        lastTap = { time: currentTime, x: touchPoint.x, y: touchPoint.y };
+    });
+
+    /**
+      * 'Don't need to make significant changes because Fabric.js's object:moving event should handle both mouse and touch interactions seamlessly. However, it's essential to ensure the user experience is smooth on touch devices, especially for updating and displaying tooltips, as touch devices don't have a cursor to hover for tooltips.
+     **/
+    // To implement bounds checking within the object:moving event, you can constrain the movement of vertices so they stay within the canvas boundaries or a specified geographical area. The approach involves calculating the new position's latitude and longitude when a vertex is moved and then checking if these values are within the allowed bounds. If the new position is outside the bounds, you can revert the vertex to its last valid position or clamp it to the nearest valid position within the bounds.
+    // newCoords holds the new latitude and longitude values based on the vertex's position on the canvas.
+    // latMin, latMax, lngMin, and lngMax define the geographical bounds within which vertices can move. Adjust these values based on your requirements.
+    // If the new coordinates are outside the defined bounds, the vertex's position is reset to its original position (originalLeft and originalTop), effectively preventing the move.
+    // If the new coordinates are within bounds, the vertex's geoCoord property is updated, and the tooltip is adjusted to reflect the new coordinates.
+    // This approach ensures that all vertices stay within the defined geographical or canvas boundaries during interaction, maintaining the integrity of the polygon's shape relative to the defined area.
+    //  Here's how you could implement this in your object:moving event handler:
+    // canvas.on('object:moving', function(e) {
+    //     console.log("'mouse:moving'",e.target)
+    //     if (e.target && e.target.type === 'circle') {
+    //         // Calculate the new geographic coordinates based on the circle's position
+    //         var newCoords = transformCanvasToGeo(e.target.left, e.target.top);
+            
+    //         // Define your geographical bounds
+    //         var latMin = -90, latMax = 90;  // Example latitude bounds
+    //         var lngMin = -180, lngMax = 180; // Example longitude bounds
+
+    //         // Check if the new coordinates are within the bounds
+    //         var withinLatBounds = newCoords[0] >= latMin && newCoords[0] <= latMax;
+    //         var withinLngBounds = newCoords[1] >= lngMin && newCoords[1] <= lngMax;
+
+    //         if (!withinLatBounds || !withinLngBounds) {
+    //             // If the new position is out of bounds, prevent the move or clamp to bounds
+    //             e.target.left = e.target.originalLeft;
+    //             e.target.top = e.target.originalTop;
+    //         } else {
+    //             // Update the circle's geoCoord property with the new, valid coordinates
+    //             e.target.geoCoord = newCoords;
+
+    //             // Update the tooltip with the new coordinates
+    //             var tooltip = document.getElementById('tooltip');
+    //             tooltip.innerHTML = `Lat: ${newCoords[0].toFixed(4)}, Lng: ${newCoords[1].toFixed(4)}`;
+    //             tooltip.style.display = 'block';
+    //             tooltip.style.left = e.e.clientX + 15 + 'px'; // Adjusted for cursor offset
+    //             tooltip.style.top = e.e.clientY + 15 + 'px';
+    //         }
+    //     }
+    // });
+    canvas.on('object:moving', function(e) {
+        if (e.target && e.target.type === 'circle') {
+            var newCoords = transformCanvasToGeo(e.target.left, e.target.top);
+
+            var latMin = -90, latMax = 90;
+            var lngMin = -180, lngMax = 180;
+
+            var withinLatBounds = newCoords[0] >= latMin && newCoords[0] <= latMax;
+            var withinLngBounds = newCoords[1] >= lngMin && newCoords[1] <= lngMax;
+
+            if (!withinLatBounds || !withinLngBounds) {
+                e.target.left = e.target.originalLeft;
+                e.target.top = e.target.originalTop;
+            } else {
+                e.target.geoCoord = newCoords;
+
+                var tooltip = document.getElementById('tooltip');
+                tooltip.innerHTML = `Lat: ${newCoords[0].toFixed(4)}, Lng: ${newCoords[1].toFixed(4)}`;
+
+                if (e.e.touches) {
+                    // For touch devices, use the first touch point for tooltip positioning
+                    var touch = e.e.touches[0];
+                    tooltip.style.left = touch.clientX + 15 + 'px';
+                    tooltip.style.top = touch.clientY + 15 + 'px';
+                } else {
+                    // For non-touch devices, use the mouse coordinates
+                    tooltip.style.left = e.e.clientX + 15 + 'px';
+                    tooltip.style.top = e.e.clientY + 15 + 'px';
+                }
+
+                tooltip.style.display = 'block';
+            }
+        }
+    });
+   
+    // Update Coordinates on Drag End
+    // Use the object:modified event to finalize the position of the point and update the geoCoordinates array when the drag is completed:
+    canvas.on('object:modified', function(e) {
+        console.log("'object:modified'",e.target)
+        if (e.target && e.target.type === 'circle') {
+            var finalCoords = transformCanvasToGeo(e.target.left, e.target.top);
+            // Find and update the corresponding node in the linked list
+            let current = verticesList.head;
+            let index = 0;
+            while (current) {
+                if (index === e.target.vertexIndex) {
+                    current.data = finalCoords; // Update the node's data
+                    break;
+                }
+                current = current.next;
+                index++;
+            }
+            redrawPolygon(); // Redraw the polygon with updated coordinates
+        }
+    });
+
+
+    /*Inner Point events
+    */
+     /**
+      * 'mouse:dblclick' && 'touch:end''
+     **/
+   // Modify the 'mouse:dblclick' event handler to include internal points
+   canvas.on('mouse:dblclick', function(e) {
+        if (e.target && e.target.type === 'circle' && e.target.pointType === 'inner') {
+            // Prevent adding a new point by setting the last click time to the current time
+            lastClickTime = new Date().getTime();
+            // Show edit popup for the double-clicked internal point
+            showEditPopupForInternalPoint(e.target,'inner');
+            // Set flag to true to indicate adding via double-click
+            addingPointViaDoubleClick = true;
+              // If an inner circle is clicked, set it as the selected circle
+            selectedInnerCircle = e.target;
+        }else{
+            // If the click is not on an inner circle, clear the selection
+            selectedInnerCircle = null;
+        }
+    });
+
+
+    var lastTapNew = { time: 0, x: 0, y: 0 };
+    var doubleTapThresholdTimeNew = 300; // Time in milliseconds, adjust based on testing
+    var doubleTapThresholdDistanceNew = 20; // Distance in pixels, adjust based on testing
+
+    canvas.on('touch:end', function(e) {
+        var touchPoint = e.self.getPointer(e.e.touches[0]);
+        var currentTime = new Date().getTime();
+        var tapInterval = currentTime - lastTapNew.time;
+        var distance = Math.sqrt(Math.pow(touchPoint.x - lastTapNew.x, 2) + Math.pow(touchPoint.y - lastTapNew.y, 2));
+
+        if (tapInterval < doubleTapThresholdTimeNew && distance < doubleTapThresholdDistanceNew) {
+            // Detected a double tap, now check if it's on an inner circle
+            if (e.target && e.target.type === 'circle' && e.target.pointType === 'inner') {
+                // Prevent adding a new point
+                lastClickTime = currentTime; // Update lastClickTime to prevent adding a point on double-tap
+                // Show edit popup for the double-tapped internal point
+                showEditPopupForInternalPoint(e.target, 'inner');
+                // Indicate that an inner circle has been selected
+                selectedInnerCircle = e.target;
+            } else {
+                // If the double-tap is not on an inner circle, clear the selection
+                selectedInnerCircle = null;
+            }
+        }
+
+        // Update lastTap for the next touchend event
+        lastTapNew = { time: currentTime, x: touchPoint.x, y: touchPoint.y };
+    });
+
+    /**
+      * 'mouse:down' && ''touch:start'''
+     **/
+    canvas.on('mouse:down', function(options) {
+        var pointer = canvas.getPointer(options.e);
+        var currentTime = new Date().getTime();
+        // Check if the click is not on an object and is inside the polygon
+        if (canvas.getActiveObject() && canvas.getActiveObject().type === 'circle') {
+            // The click is on an existing point, so we're likely moving it
+            return;
+        }
+
+        if (!options.target) { // If the click is not on an object
+            canvas.discardActiveObject(); // Deselect any active object
+            canvas.requestRenderAll(); // Re-render the canvas
+
+            var pointer = canvas.getPointer(options.e);
+            if (isPointInPolygon(pointer, polygon)) {
+                addInternalPoint(pointer);
+            }
+        }
+        if (isPointInPolygon(pointer, polygon)) {
+            // The click is inside the polygon and not on an existing point, so we can add a new point
+            if (currentTime - lastClickTime >= clickDelay) {
+                // Treat as a single click if outside the delay window
+                addPointOnClick(pointer);
+            }
+        }
+
+        lastClickTime = currentTime; 
+    });
+    canvas.on('touch:start', function(e) {
+        var touch = e.e.touches[0]; // Get the first touch point
+        var pointer = canvas.getPointer(touch);
+        var currentTime = new Date().getTime();
+
+        // Check if the touch is not on an object and is inside the polygon
+        if (!e.target) {
+            canvas.discardActiveObject(); // Deselect any active object
+            canvas.requestRenderAll(); // Re-render the canvas
+
+            if (isPointInPolygon(pointer, polygon)) {
+                // The touch is inside the polygon and not on an existing point
+                if (currentTime - lastClickTime >= clickDelay) {
+                    // Treat as a single touch if outside the delay window
+                    addInternalPoint(pointer);
+                }
+            }
+            lastClickTime = currentTime;
+        }
+    });
+    /**
+      * 'mouse:down' && ''touch:start'''
+     **/
+    canvas.on('object:modified', function(e) {
+        if (e.target.type === 'circle' && e.target.pointType === 'inner') {
+            var movedCircle = e.target;
+            var newCoords = transformCanvasToGeo(movedCircle.left, movedCircle.top);
+
+            // Update the corresponding node in the linked list with new coordinates
+            var node = internalPointsList.find(movedCircle);
+            if (node) {
+                node.data.lat = newCoords[0];
+                node.data.lng = newCoords[1];
+            }
+
+            // Redraw lines connecting the points with updated positions
+            redrawLinesAndPoints();
+        }
+    });
+    canvas.on('object:moving', function(e) {
+        if (e.target.pointType === 'inner') {
+            const pointer = { x: e.target.left, y: e.target.top };
+        }
+    });
+
+    // Handle mouse move event
+    canvas.on('mouse:move', function(options) {
+        var pointer = canvas.getPointer(options.e);
+        if (isPointInPolygon(pointer, polygon)) {
+            canvas.defaultCursor = 'move';
+        } else {
+            canvas.defaultCursor = 'default';
+        }
+    });
+    canvas.on('object:selected', function(options) {
+        console.log("object:selected", options);
+        if (options.target.type === 'circle') {
+            // Enhance visual feedback for touch selection
+            options.target.set({
+                borderColor: 'red',
+                cornerColor: 'green',
+                cornerSize: 20, // Increase for easier touch manipulation
+                transparentCorners: false
+            });
+            canvas.requestRenderAll();
+        }
+    });
+
+     
+    canvas.on('selection:created', function(options) {
+        console.log("selection:created",options)
+        if (options.target.type === 'circle') {
+            // A circle has been selected, handle accordingly
+        }
+    });
+    canvas.on('selection:updated', function(event) {
+        console.log('Selection:updated:', event.target);
+    });
+    canvas.on('after:render', function(event) {
+        console.log('Selection:updated:', event.target);
+        // Redraw lines or connections here
+    });
+    // function resizeCanvas() {
+    //     const container = document.getElementById('canvasContainer'); // Assume your canvas is inside a div with this id
+    //     canvas.setWidth(container.offsetWidth);
+    //     canvas.setHeight(container.offsetHeight);
+
+    //     // If maintaining aspect ratio is necessary
+    //     const aspectRatio = 16 / 9; // Example aspect ratio
+    //     let newHeight = container.offsetWidth / aspectRatio;
+    //     if (newHeight > window.innerHeight) {
+    //         newHeight = window.innerHeight;
+    //         canvas.setWidth(newHeight * aspectRatio);
+    //     }
+    //     canvas.setHeight(newHeight);
+
+    //     canvas.renderAll();
+    // }
+    // window.addEventListener('load', resizeCanvas);
+    // window.addEventListener('resize', resizeCanvas);
+    // function adjustCanvasForHighDPI(canvas) {
+    //     const scaleFactor = window.devicePixelRatio || 1;
+    //     canvas.setAttribute('width', canvas.offsetWidth * scaleFactor);
+    //     canvas.setAttribute('height', canvas.offsetHeight * scaleFactor);
+    //     canvas.getContext('2d').scale(scaleFactor, scaleFactor);
+    // }
+
+    // // Call this function after setting the canvas size
+    // adjustCanvasForHighDPI(document.getElementById('myCanvas'));
+    function resizeCanvas() {
+        const container = document.getElementById('canvasContainer');
+        if (container) {
+            const width = container.offsetWidth; // Width of the container
+            const height = Math.min(window.innerHeight * 0.8, 800); // Adjust height based on window size and max height
+
+            canvas.setWidth(width);
+            canvas.setHeight(height);
+            canvas.renderAll(); // Re-render the canvas to apply changes
+        }
+    }
+
+    // Listen for window resize events to adjust the canvas size
+    window.addEventListener('resize', resizeCanvas);
+
+    // Initial resize when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        resizeCanvas();
+    });
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+</body>
+</html>
