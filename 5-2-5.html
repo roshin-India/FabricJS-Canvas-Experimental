@@ -1,74 +1,87 @@
-<!-- <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Canvas geospatial Polygon Play</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
-    <style>
-        body { margin: 0; }
-        canvas { border: 1px solid #888; }
-        #editPopup {
-            display: none;
-            position: absolute;
-            background: white;
-            border: 1px solid #888;
-            padding: 10px;
-            z-index: 10;
-        }
-    </style>
-</head>
-<body>
-
-<canvas id="myCanvas" width="800" height="800"></canvas>
-<button id="createZigzagButton">Add Zigzag Path</button>
-
-<div id="editPopup">
-    <label>Latitude: <input type="text" id="editLat"></label><br>
-    <label>Longitude: <input type="text" id="editLng"></label><br>
-    <button onclick="saveEdit()">Save</button>
-    <button onclick="closePopup()">Cancel</button>
-    <button onclick="deleteVertex(event)" data-type="border" id="btnDelete">Delete</button>
-</div>
-<div id="tooltip" style="display: none; position: absolute; background-color: #fff; border: 1px solid #000; padding: 5px; pointer-events: none; z-index: 100;"></div> -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Canvas geospatial Polygon Play</title>
+    <title>Autonomous Tracking System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
-    <!-- Include Tailwind CSS CDN -->
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.0.2/dist/tailwind.min.css" rel="stylesheet">
-</head>
-<body class="bg-gray-100 font-sans">
+    <style>
+        #canvasContainer {
+            display: flex;
+            justify-content: center; /* Center horizontally */
+            align-items: center; /* Center vertically */
+            height: 70vh; /* Full height of the viewport */
+        }
+        #canvasContainer canvas {
+            width: 100% !important;
+            height: 100% !important;
+            display: block; /* Removes the bottom margin/gap */
+            max-width: 100%;
+            max-height: 100vh;
+        }
+    </style>
+    </head>
+    <body class="bg-gray-300">
+        <div class="container mx-auto">
+            <h1 class="text-2xl font-semibold w-full text-center py-1">Autonomous Tracking System</h1>
+            <p class="w-full text-center text-xs text-blue-900">Version: 1.0.0</p>
+            <hr class="my-3">
+            <div class="border p-3 bg-white">
+                <!-- Canvas -->
+                <div id="canvasContainer" >
+                    <canvas id="myCanvas" class="border"></canvas>
+                </div>
+                <button id="createZigzagButton" class="hidden border rounded text-sm bg-blue-600 mt-3 py-1 px-3 text-white">Add Zigzag Path</button>
+            </div>
+            <hr class="my-3">
+            <!-- Edit Popup -->
+            <div id="editPopup" class="hidden absolute border z-10 max-w-[280px] w-full flex flex-col bg-white p-3 rounded shadow">
+                <div class="flex flex-col gap-2 text-sm">
+                    <div class="flex-1">
+                        <label for="editLat" class="flex mb-1">Latitude:</label>
+                        <input type="text" id="editLat" class="w-full border rounded bg-gray-200"/>
+                    </div>
+                    <div class="flex-1">
+                        <label for="editLng" class=" flex mb-1">Longitude:</label>
+                        <input type="text" id="editLng" class="w-full border rounded bg-gray-200"/>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 py-2 text-xs">
+                    <button class="py-1 px-3 bg-blue-900 text-white hover:bg-blue-800 transition rounded" onclick="saveEdit()">Save</button>
+                    <button class="py-1 px-3 bg-gray-600 text-white hover:bg-gray-700 transition rounded" onclick="closePopup()">Cancel</button>
+                    <button class="py-1 px-3 bg-red-700 text-white hover:bg-red-800 transition rounded" onclick="deleteVertex(event)" data-type="border" id="btnDelete">Delete</button>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <button class="py-1 px-3 bg-green-900 text-white hover:bg-green-800 transition rounded" onclick="addPointBefore()">Add Point Before</button>
+                    <button class="py-1 px-3 bg-green-900 text-white hover:bg-green-800 transition rounded" onclick="addPointAfter()">Add Point After</button>
+                </div>
+            </div>
+            <!-- Tooltip -->
+            <div id="tooltip" class="hidden absolute bg-white rounded py-1 px-2 border z-10 pointer-events-none"></div>
+        </div>
 
-<div class="flex flex-col items-center justify-center min-h-screen">
-    <canvas id="myCanvas" class="border-2 border-gray-400"></canvas>
-    <button id="createZigzagButton" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-700 transition duration-300">Add Zigzag Path</button>
-</div>
+    <!-- Canvas Script -->
+    <script>
 
-<div id="editPopup" class="hidden absolute bg-white border border-gray-400 p-4 rounded shadow-lg z-10">
-    <div class="mb-4">
-        <label class="block text-gray-700 text-sm font-bold mb-2">Latitude:</label>
-        <input type="text" id="editLat" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
-    </div>
-    <div class="mb-4">
-        <label class="block text-gray-700 text-sm font-bold mb-2">Longitude:</label>
-        <input type="text" id="editLng" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
-    </div>
-    <div class="flex justify-between">
-        <button onclick="saveEdit()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Save</button>
-        <button onclick="closePopup()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Cancel</button>
-        <button onclick="deleteVertex(event)" data-type="border" id="btnDelete" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Delete</button>
-    </div>
-</div>
+        const canvasContainer = document.getElementById('canvasContainer');
+        var canvas = new fabric.Canvas('myCanvas', { subTargetCheck: true });
+        canvas.selection = false; // Disable group selection
 
-<div id="tooltip" class="hidden absolute bg-white border border-gray-400 p-2 rounded shadow-lg pointer-events-none z-20"></div>
+        function resizeCanvas() {
+            // Set canvas dimensions to fill its container
+            canvas.setWidth(canvasContainer.clientWidth);
+            canvas.setHeight(canvasContainer.clientHeight);
 
-<script>
-    var canvas = new fabric.Canvas('myCanvas', { subTargetCheck: true });
-    canvas.selection = false; // Disable group selection
+            // If maintaining aspect ratio or specific design, adjust accordingly
+            // Optionally, scale and reposition canvas objects to fit new size
+        }
+
+        // Initial resize to fit container
+        resizeCanvas();
+        // Optional: Resize canvas on window resize
+        window.addEventListener('resize', resizeCanvas);
+    
 
 
      /**
@@ -198,7 +211,66 @@
             }
             return arr;
         }
+        addBefore(node, data) {
+            const newNode = new BorderNode(data, node.prev, node);
+            if (node.prev) {
+                node.prev.next = newNode;
+            } else {
+                this.head = newNode;
+            }
+            node.prev = newNode;
+        }
+
+        addAfter(node, data) {
+            const newNode = new BorderNode(data, node, node.next);
+            if (node.next) {
+                node.next.prev = newNode;
+            } else {
+                this.tail = newNode;
+            }
+            node.next = newNode;
+        }
     }
+    
+
+    function addPointBefore() {
+        if (editIndex !== -1) {
+            let current = verticesList.head;
+            let index = 0;
+            while (current) {
+                if (index === editIndex) {
+                    const prevCoord = current.prev ? current.prev.data : current.data; // Use current if there's no prev
+                    const newCoord = calculateMidpoint(prevCoord, current.data);
+                    verticesList.addBefore(current, newCoord);
+                    break;
+                }
+                current = current.next;
+                index++;
+            }
+            redrawPolygon();
+            closePopup()
+        }
+    }
+
+    function addPointAfter() {
+        if (editIndex !== -1) {
+            let current = verticesList.head;
+            let index = 0;
+            while (current) {
+                if (index === editIndex) {
+                    const nextCoord = current.next ? current.next.data : current.data; // Use current if there's no next
+                    const newCoord = calculateMidpoint(current.data, nextCoord);
+                    verticesList.addAfter(current, newCoord);
+                    break;
+                }
+                current = current.next;
+                index++;
+            }
+            redrawPolygon();
+            closePopup()
+        }
+    }
+
 
     // Initialize the linked list with geoCoordinates
     var verticesList = new BorderLinkedList();
@@ -306,8 +378,10 @@
 
         return [lat, lng];
     }
-
     
+    function calculateMidpoint(coord1, coord2) {
+        return [(coord1[0] + coord2[0]) / 2, (coord1[1] + coord2[1]) / 2];
+    }
     function showPopup(x, y, lat, lng) {
         var popup = document.getElementById('editPopup');
         popup.style.left = x + 'px';
@@ -608,7 +682,7 @@
                 canvas.remove(obj);
             }
         });
-
+        circleIdCounter = 0;
         // Iterate through the linked list of internal points to redraw circles and lines
         var current = internalPointsList.head;
         while (current) {
@@ -1169,6 +1243,7 @@
                 index++;
             }
             redrawPolygon(); // Redraw the polygon with updated coordinates
+            redrawLinesAndPoints()
         }
     });
 
@@ -1251,6 +1326,7 @@
             if (currentTime - lastClickTime >= clickDelay) {
                 // Treat as a single click if outside the delay window
                 addPointOnClick(pointer);
+                redrawLinesAndPoints();
             }
         }
 
@@ -1338,50 +1414,6 @@
         console.log('Selection:updated:', event.target);
         // Redraw lines or connections here
     });
-
-
-     // Function to adjust canvas size
-     function adjustCanvasSize() {
-        var maxWidth = window.innerWidth - 40; // Adjust margins as needed
-        var maxHeight = window.innerHeight - 100; // Adjust for other page elements as needed
-        var size = Math.min(maxWidth, maxHeight); // Use the smaller of the two to keep the canvas square
-
-        // Set canvas dimensions
-        canvas.setWidth(size);
-        canvas.setHeight(size);
-        canvas.renderAll(); // Re-render the canvas to apply changes
-
-        // Additional logic to adjust other elements or canvas content based on new size
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        // Initialize fabric.js canvas
-        var canvas = new fabric.Canvas('myCanvas', { subTargetCheck: true });
-
-        // Initial canvas size adjustment
-        adjustCanvasSize();
-
-        // Listen for window resize events to adjust the canvas size
-        window.addEventListener('resize', adjustCanvasSize);
-    });
-    // Function to adjust canvas size to fit its parent container
-    function adjustCanvasToContainer() {
-            var canvasContainer = document.getElementById('canvasContainer');
-            var width = canvasContainer.offsetWidth; // Get the width of the container
-            var height = canvasContainer.offsetHeight; // Get the height of the container
-
-            // Set canvas dimensions
-            canvas.setWidth(width);
-            canvas.setHeight(height);
-            canvas.calcOffset(); // Update the canvas offset
-            canvas.renderAll(); // Re-render the canvas to apply changes
-        }
-
-        // Initialize fabric.js canvas
-        var canvas = new fabric.Canvas('myCanvas', { subTargetCheck: true });
-
-        document.addEventListener('DOMContentLoaded', adjustCanvasToContainer); // Adjust canvas size on initial load
-        window.addEventListener('resize', adjustCanvasToContainer); // Adjust canvas size on window resize
 
 </script>
 
