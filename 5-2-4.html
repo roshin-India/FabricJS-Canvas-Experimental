@@ -29,6 +29,8 @@
     <button onclick="saveEdit()">Save</button>
     <button onclick="closePopup()">Cancel</button>
     <button onclick="deleteVertex(event)" data-type="border" id="btnDelete">Delete</button>
+    <button onclick="addPointBefore()">Add Point Before</button>
+    <button onclick="addPointAfter()">Add Point After</button>
 </div>
 <div id="tooltip" style="display: none; position: absolute; background-color: #fff; border: 1px solid #000; padding: 5px; pointer-events: none; z-index: 100;"></div>
 
@@ -164,7 +166,66 @@
             }
             return arr;
         }
+        addBefore(node, data) {
+            const newNode = new BorderNode(data, node.prev, node);
+            if (node.prev) {
+                node.prev.next = newNode;
+            } else {
+                this.head = newNode;
+            }
+            node.prev = newNode;
+        }
+
+        addAfter(node, data) {
+            const newNode = new BorderNode(data, node, node.next);
+            if (node.next) {
+                node.next.prev = newNode;
+            } else {
+                this.tail = newNode;
+            }
+            node.next = newNode;
+        }
     }
+    
+
+    function addPointBefore() {
+        if (editIndex !== -1) {
+            let current = verticesList.head;
+            let index = 0;
+            while (current) {
+                if (index === editIndex) {
+                    const prevCoord = current.prev ? current.prev.data : current.data; // Use current if there's no prev
+                    const newCoord = calculateMidpoint(prevCoord, current.data);
+                    verticesList.addBefore(current, newCoord);
+                    break;
+                }
+                current = current.next;
+                index++;
+            }
+            redrawPolygon();
+            closePopup()
+        }
+    }
+
+    function addPointAfter() {
+        if (editIndex !== -1) {
+            let current = verticesList.head;
+            let index = 0;
+            while (current) {
+                if (index === editIndex) {
+                    const nextCoord = current.next ? current.next.data : current.data; // Use current if there's no next
+                    const newCoord = calculateMidpoint(current.data, nextCoord);
+                    verticesList.addAfter(current, newCoord);
+                    break;
+                }
+                current = current.next;
+                index++;
+            }
+            redrawPolygon();
+            closePopup()
+        }
+    }
+
 
     // Initialize the linked list with geoCoordinates
     var verticesList = new BorderLinkedList();
@@ -272,8 +333,10 @@
 
         return [lat, lng];
     }
-
     
+    function calculateMidpoint(coord1, coord2) {
+        return [(coord1[0] + coord2[0]) / 2, (coord1[1] + coord2[1]) / 2];
+    }
     function showPopup(x, y, lat, lng) {
         var popup = document.getElementById('editPopup');
         popup.style.left = x + 'px';
@@ -574,7 +637,7 @@
                 canvas.remove(obj);
             }
         });
-
+        circleIdCounter = 0;
         // Iterate through the linked list of internal points to redraw circles and lines
         var current = internalPointsList.head;
         while (current) {
@@ -1135,6 +1198,7 @@
                 index++;
             }
             redrawPolygon(); // Redraw the polygon with updated coordinates
+            redrawLinesAndPoints()
         }
     });
 
@@ -1217,6 +1281,7 @@
             if (currentTime - lastClickTime >= clickDelay) {
                 // Treat as a single click if outside the delay window
                 addPointOnClick(pointer);
+                redrawLinesAndPoints();
             }
         }
 
